@@ -188,11 +188,19 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { catalog = old; BuildRows(); Error("Изменение не сохранено", ex); return false; }
     }
-    private static void Error(string title, Exception ex) => MessageBox.Show(ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
+    private void Error(string title, Exception ex, bool applicationActions = true)
+    {
+        var owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? this;
+        var dialog = new ErrorDialog(title, ex, applicationActions && owner == this && Enabled("idle") && !isolatedSession);
+        if (owner.IsVisible) dialog.Owner = owner;
+        dialog.ShowDialog();
+        if (dialog.SelectedAction == "restart") Restart_Click(this, new RoutedEventArgs());
+        else if (dialog.SelectedAction == "exit") { exitRequested = true; Close(); }
+    }
     private void Edit(BaseEntry? entry, int section = 0)
     {
         if (!AllowTools()) return;
-        var dialog = new BaseEditor(entry?.Copy() ?? new BaseEntry { Group = SelectedGroupPath, Version = catalog.Settings.DefaultVersion, Location = catalog.Settings.DefaultFolder }, platforms, catalog.Bases.Select(b => b.Group).Concat(catalog.Groups.Select(g => g.Path)).Distinct().ToList(), catalog.Configurations, allowLock: !isolatedSession && entry != null, enableLegacy77: catalog.Settings.EnableLegacy77, examples: CreateParameterExamples()) { Owner = this };
+        var dialog = new BaseEditor(entry?.Copy() ?? new BaseEntry { Group = SelectedGroupPath, Version = catalog.Settings.DefaultVersion, Location = catalog.Settings.DefaultFolder }, platforms, catalog.Bases.Select(b => b.Group).Concat(catalog.Groups.Select(g => g.Path)).Distinct().ToList(), catalog.Configurations, allowLock: !isolatedSession && entry != null, enableLegacy77: catalog.Settings.EnableLegacy77, examples: CreateParameterExamples(), metadataReader: ReadConfigurationMetadata) { Owner = this };
         if (entry == null || !catalog.Bases.Any(b => b.Id == entry.Id)) dialog.UseNewNamePolicy(catalog.Settings);
         dialog.SelectSection(section);
         if (entry != null && officialLists?.IsCommon(entry.Id) == true) dialog.UseCommonSource();

@@ -26,7 +26,7 @@
      <Trigger Property="IsPressed" Value="True"><Setter TargetName="Frame" Property="Background" Value="{DynamicResource ThemeSelection}"/><Setter Property="Foreground" Value="{DynamicResource ThemeSelectionText}"/></Trigger>
      <Trigger Property="IsDefaulted" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/></Trigger>
      <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/></Trigger>
-     <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value=".5"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Frame" Property="Opacity" Value=".5"/></Trigger>
     </ControlTemplate.Triggers>
    </ControlTemplate></Setter.Value></Setter>
   </Style>

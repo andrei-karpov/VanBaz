@@ -8,6 +8,7 @@ namespace VanBaz;
 
 public partial class App : Application
 {
+    internal System.Diagnostics.ProcessStartInfo? RestartStartInfo { get; set; }
     private Mutex? catalogMutex;
     private bool ownsMutex;
     private InstanceBridge? bridge;
@@ -86,5 +87,10 @@ public partial class App : Application
         if (ownsMutex) catalogMutex?.ReleaseMutex();
         catalogMutex?.Dispose();
         base.OnExit(e);
+        if (RestartStartInfo is { } restart)
+        {
+            try { System.Diagnostics.Process.Start(restart); }
+            catch (Exception ex) { MessageBox.Show("Не удалось перезапустить ВанБаз. Запустите программу вручную.\n\n" + ex.Message, "Перезапуск ВанБаз", MessageBoxButton.OK, MessageBoxImage.Error); }
+        }
     }
 }

@@ -25,6 +25,8 @@ public static class UiIcons
             case "lock": Shape("M3,7 L13,7 L13,14 L3,14 Z", "#DCA447", true); Shape("M5,7 L5,4 A3,3 0 0 1 11,4 L11,7 M8,10 L8,12", "#737D86"); break;
             case "history": Shape("M8,1 A7,7 0 1 1 7.99,1 M8,4 L8,8 L11,10", "#548DB8"); break;
             case "settings": Shape("M2,4 L14,4 M2,8 L14,8 M2,12 L14,12 M5,2 L5,6 M11,6 L11,10 M6,10 L6,14", "#548DB8"); break;
+            case "system": Shape("M2,2 L6,2 L6,6 L2,6 Z M10,2 L14,2 L14,6 L10,6 Z M2,10 L6,10 L6,14 L2,14 Z M10,10 L14,10 L14,14 L10,14 Z", "#548DB8"); break;
+            case "feedback": Shape("M1,3 L15,3 L15,13 L1,13 Z M1,3 L8,9 L15,3", "#548DB8"); break;
             case "help": Shape("M6,4 C6,0 13,1 12,5 C12,7 8,7 8,10 M8,13 L8,14", "#548DB8"); break;
             case "search": Shape("M7,1 A5,5 0 1 1 6.99,1 M11,11 L15,15", "#548DB8"); break;
             case "process": Shape("M2,2 L14,2 L14,12 L2,12 Z M5,15 L11,15 M8,12 L8,15 M4,8 L6,8 L7,5 L9,10 L10,7 L12,7", "#548DB8"); break;

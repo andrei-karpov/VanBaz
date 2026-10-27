@@ -13,7 +13,7 @@ public class BaseEditor : FormDialog
     public BaseEntry Result { get; private set; }
     private readonly List<ConfigurationSource> configurations;
     private readonly bool enableLegacy77;
-    public BaseEditor(BaseEntry entry, List<PlatformInfo> platforms, List<string> groups, List<ConfigurationSource>? configurations = null, bool allowLock = false, bool enableLegacy77 = false, ParameterExamples? examples = null) : base("Свойства информационной базы", 690, 540)
+    public BaseEditor(BaseEntry entry, List<PlatformInfo> platforms, List<string> groups, List<ConfigurationSource>? configurations = null, bool allowLock = false, bool enableLegacy77 = false, ParameterExamples? examples = null, Func<BaseEntry, System.Windows.Window, Task<BridgeResult?>>? metadataReader = null) : base("Свойства информационной базы", 690, 540)
     {
         this.configurations = configurations ?? new();
         this.enableLegacy77 = enableLegacy77;
@@ -24,6 +24,22 @@ public class BaseEditor : FormDialog
         Text("notes", "Примечание", entry.Notes, true);
         Text("configversion", "Релиз конфигурации", entry.ConfigurationVersion);
         Text("configname", "Имя конфигурации", entry.ConfigurationName);
+        bool readingMetadata = false;
+        var detect = new System.Windows.Controls.Button { Content = "Определить версию…", HorizontalAlignment = System.Windows.HorizontalAlignment.Left, ToolTip = "Прочитать имя и релиз конфигурации через зарегистрированный COMConnector. Подключение выполняется только после подтверждения." };
+        Element(detect);
+        detect.Click += async (_, _) =>
+        {
+            if (readingMetadata || metadataReader == null || !Save()) return;
+            try
+            {
+                readingMetadata = true; ((System.Windows.UIElement)Content).IsEnabled = false;
+                var result = await metadataReader(Result.Copy(), this);
+                if (result != null) { SetText("configname", result.Name); SetText("configversion", result.Version); }
+            }
+            catch (Exception ex) { SetError(ex.Message); }
+            finally { readingMetadata = false; ((System.Windows.UIElement)Content).IsEnabled = true; }
+        };
+        Closing += (_, e) => { if (readingMetadata) { e.Cancel = true; SetError("Дождитесь завершения чтения конфигурации."); } };
         string Label(ConfigurationSource c) => c.Name + " [" + c.Id + "]";
         Choice("configsource", "Источник релизов", this.configurations.FirstOrDefault(c => c.Id == entry.ConfigurationId) is { } selected ? Label(selected) : "", new[] { "" }.Concat(this.configurations.Select(Label)));
         Text("updateurl", "Свой UpdInfo.txt", entry.UpdateInfoUrl);
@@ -86,7 +102,11 @@ public class BaseEditor : FormDialog
         foreach (string name in new[] { "entlogin", "cfglogin", "repositoryuse" })
         { var check = (System.Windows.Controls.CheckBox)Field(name); check.Checked += (_, _) => AuthenticationState(); check.Unchecked += (_, _) => AuthenticationState(); }
         AuthenticationState();
-        Validate = Save;
+        void MetadataAvailability() => detect.IsEnabled = metadataReader != null && Value("kind") != "Веб-публикация" && Value("version") != "7.7";
+        ((System.Windows.Controls.ComboBox)Field("kind")).SelectionChanged += (_, _) => MetadataAvailability();
+        Field("version").AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new System.Windows.Controls.TextChangedEventHandler((_, _) => MetadataAvailability()));
+        ((System.Windows.Controls.ComboBox)Field("version")).SelectionChanged += (_, _) => Dispatcher.BeginInvoke(new Action(MetadataAvailability));
+        MetadataAvailability(); Validate = () => !readingMetadata && Save();
     }
     public void UseNewNamePolicy(Preferences preferences)
     {

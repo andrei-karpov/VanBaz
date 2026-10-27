@@ -21,10 +21,14 @@ public sealed class FoundBase
     public string State => Registered ? "Уже в списке" : "Новая";
 }
 public sealed record BaseSearchResult(List<FoundBase> Bases, int Inaccessible, bool Stopped);
+public enum BaseSizeFilter { Any, AtLeast, MoreThan, LessThan, Equal }
 public static class BaseSearch
 {
     public static BaseSearchResult Scan(IEnumerable<string> roots, IEnumerable<string> existing, long minimumBytes, DateTime? modifiedSince, CancellationToken token)
+        => Scan(roots, existing, BaseSizeFilter.AtLeast, minimumBytes, modifiedSince, null, token);
+    public static BaseSearchResult Scan(IEnumerable<string> roots, IEnumerable<string> existing, BaseSizeFilter sizeFilter, long bytes, DateTime? modifiedSince, DateTime? modifiedThrough, CancellationToken token)
     {
+        if (bytes < 0 || !Enum.IsDefined(sizeFilter)) throw new ArgumentException("Недопустимый отбор размера.");
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var known = existing.Select(p => Path.GetFullPath(p).TrimEnd('\\', '/')).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var found = new List<FoundBase>(); int inaccessible = 0;
@@ -37,7 +41,7 @@ public static class BaseSearch
             {
                 if ((File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0) continue;
                 var file = new FileInfo(Path.Combine(folder, "1Cv8.1CD"));
-                if (file.Exists && (file.Attributes & FileAttributes.ReparsePoint) == 0 && file.Length >= minimumBytes && (!modifiedSince.HasValue || file.LastWriteTime >= modifiedSince.Value))
+                if (file.Exists && (file.Attributes & FileAttributes.ReparsePoint) == 0 && Matches(file.Length, file.LastWriteTime, sizeFilter, bytes, modifiedSince, modifiedThrough))
                     found.Add(new() { Folder = folder, Name = new DirectoryInfo(folder).Name, Bytes = file.Length, Modified = file.LastWriteTime, Registered = known.Contains(folder.TrimEnd('\\', '/')), Selected = !known.Contains(folder.TrimEnd('\\', '/')) });
                 foreach (string child in Directory.EnumerateDirectories(folder)) pending.Push(child);
             }
@@ -45,12 +49,17 @@ public static class BaseSearch
         }
         return new(found.OrderBy(b => b.Folder, StringComparer.OrdinalIgnoreCase).ToList(), inaccessible, token.IsCancellationRequested);
     }
+    public static bool Matches(long length, DateTime modified, BaseSizeFilter comparison, long bytes, DateTime? since, DateTime? through)
+        => (comparison switch { BaseSizeFilter.Any => true, BaseSizeFilter.AtLeast => length >= bytes, BaseSizeFilter.MoreThan => length > bytes, BaseSizeFilter.LessThan => length < bytes, BaseSizeFilter.Equal => length == bytes, _ => false })
+        && (!since.HasValue || modified.Date >= since.Value.Date) && (!through.HasValue || modified.Date <= through.Value.Date);
 }
 public sealed class BaseSearchWindow : Window
 {
     private readonly TextBox roots = new() { AcceptsReturn = true, Height = 60, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBox minimum = new() { Text = "0", Width = 65 };
-    private readonly CheckBox useDate = new() { Content = "Изменены с", VerticalAlignment = VerticalAlignment.Center };
+    private readonly ComboBox sizeComparison = new() { Width = 120, ItemsSource = new[] { "Любой размер", "Не меньше", "Больше чем", "Меньше чем", "Равен" }, SelectedIndex = 0 };
+    private readonly CheckBox useDate = new() { Content = "Изменены", VerticalAlignment = VerticalAlignment.Center };
+    private readonly ComboBox dateComparison = new() { Width = 110, ItemsSource = new[] { "Не позднее", "Не ранее" }, SelectedIndex = 0, IsEnabled = false };
     private readonly DatePicker since = new() { SelectedDate = DateTime.Today, Width = 125, IsEnabled = false };
     private readonly TextBox prefix = new() { Width = 120 };
     private readonly CheckBox dateName = new() { Content = "Дата в имени" };
@@ -80,8 +89,10 @@ public sealed class BaseSearchWindow : Window
         var paths = new DockPanel(); var browse = new Button { Content = "Добавить папку…", Width = 130, VerticalAlignment = VerticalAlignment.Top }; DockPanel.SetDock(browse, Dock.Right); paths.Children.Add(browse); paths.Children.Add(roots); top.Children.Add(paths);
         browse.Click += (_, _) => { var f = new OpenFolderDialog { Multiselect = true, Title = "Каталоги поиска" }; if (f.ShowDialog(this) == true) roots.Text = string.Join(Environment.NewLine, roots.Text.Split('\n').Select(p => p.Trim()).Where(p => p.Length > 0).Concat(f.FolderNames).Distinct(StringComparer.OrdinalIgnoreCase)); };
         var filter = new WrapPanel { Margin = new(0, 7, 0, 5) }; top.Children.Add(filter);
-        filter.Children.Add(new TextBlock { Text = "Размер от, МБ", VerticalAlignment = VerticalAlignment.Center, Margin = new(4) }); filter.Children.Add(minimum); filter.Children.Add(useDate); filter.Children.Add(since); filter.Children.Add(search); filter.Children.Add(stop);
-        useDate.Checked += (_, _) => since.IsEnabled = true; useDate.Unchecked += (_, _) => since.IsEnabled = false;
+        filter.Children.Add(new TextBlock { Text = "Размер, МБ", VerticalAlignment = VerticalAlignment.Center, Margin = new(4) }); filter.Children.Add(sizeComparison); filter.Children.Add(minimum); filter.Children.Add(useDate); filter.Children.Add(dateComparison); filter.Children.Add(since); filter.Children.Add(search); filter.Children.Add(stop);
+        minimum.IsEnabled = false; sizeComparison.SelectionChanged += (_, _) => minimum.IsEnabled = sizeComparison.SelectedIndex != 0;
+        useDate.Checked += (_, _) => since.IsEnabled = dateComparison.IsEnabled = true; useDate.Unchecked += (_, _) => since.IsEnabled = dateComparison.IsEnabled = false;
+        since.ToolTip = "Отбор включает весь выбранный день.";
         var bottom = new StackPanel(); DockPanel.SetDock(bottom, Dock.Bottom); root.Children.Add(bottom);
         var naming = new WrapPanel { Margin = new(0, 6, 0, 0) }; bottom.Children.Add(naming);
         foreach (var pair in new (string, UIElement)[] { ("Префикс", prefix), ("Платформа", version), ("Группа", group) }) { naming.Children.Add(new TextBlock { Text = pair.Item1, VerticalAlignment = VerticalAlignment.Center, Margin = new(5) }); naming.Children.Add(pair.Item2); } naming.Children.Add(dateName);
@@ -101,7 +112,8 @@ public sealed class BaseSearchWindow : Window
     private void Select(bool value) { grid.CommitEdit(); foreach (var row in Results) row.Selected = value && !row.Registered; grid.Items.Refresh(); }
     private async Task SearchAsync()
     {
-        if (!decimal.TryParse(minimum.Text, NumberStyles.Number, CultureInfo.CurrentCulture, out decimal mb) || mb < 0 || mb > long.MaxValue / 1048576m) { status.Text = "Укажите неотрицательный размер в МБ."; return; }
+        decimal mb = 0;
+        if (sizeComparison.SelectedIndex != 0 && (!decimal.TryParse(minimum.Text, NumberStyles.Number, CultureInfo.CurrentCulture, out mb) || mb < 0 || mb > long.MaxValue / 1048576m)) { status.Text = "Укажите неотрицательный размер в МБ."; return; }
         string[] paths = roots.Text.Split('\n').Select(p => p.Trim()).Where(p => p.Length > 0).ToArray();
         if (paths.Length == 0 || paths.Any(p => !Path.IsPathFullyQualified(p))) { status.Text = "Укажите полные пути каталогов."; return; }
         if (useDate.IsChecked == true && since.SelectedDate == null) { status.Text = "Укажите дату изменения."; return; }
@@ -110,7 +122,8 @@ public sealed class BaseSearchWindow : Window
         try
         {
             DateTime? date = useDate.IsChecked == true ? since.SelectedDate : null;
-            var result = await Task.Run(() => BaseSearch.Scan(paths, existing, (long)(mb * 1048576), date, cancel.Token));
+            var comparison = (BaseSizeFilter)sizeComparison.SelectedIndex; bool through = dateComparison.SelectedIndex == 0;
+            var result = await Task.Run(() => BaseSearch.Scan(paths, existing, comparison, (long)(mb * 1048576), through ? null : date, through ? date : null, cancel.Token));
             if (closed) return;
             foreach (var row in result.Bases) Results.Add(row);
             status.Text = $"Найдено: {Results.Count}. Уже в списке: {Results.Count(r => r.Registered)}. Недоступных каталогов: {result.Inaccessible}." + (result.Stopped ? " Поиск остановлен; частичные результаты сохранены." : "");

@@ -137,6 +137,7 @@ public class Preferences
     public bool Alphabetical { get; set; } = true;
     public bool GroupsFirst { get; set; } = true;
     public bool ShowCounts { get; set; }
+    public bool ShowLaunchButtonInRow { get; set; }
     public bool EnableLegacy77 { get; set; }
     public bool ShowHistory { get; set; } = true;
     public bool ShowCommands { get; set; } = true;

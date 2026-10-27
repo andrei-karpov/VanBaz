@@ -22,6 +22,8 @@ public partial class MainWindow
     public bool EditingAvailable { get => (bool)GetValue(EditingAvailableProperty); set => SetValue(EditingAvailableProperty, value); }
     public static readonly DependencyProperty InteractionAvailableProperty = DependencyProperty.Register(nameof(InteractionAvailable), typeof(bool), typeof(MainWindow));
     public bool InteractionAvailable { get => (bool)GetValue(InteractionAvailableProperty); set => SetValue(InteractionAvailableProperty, value); }
+    public static readonly DependencyProperty RowLaunchVisibleProperty = DependencyProperty.Register(nameof(RowLaunchVisible), typeof(bool), typeof(MainWindow));
+    public bool RowLaunchVisible { get => (bool)GetValue(RowLaunchVisibleProperty); set => SetValue(RowLaunchVisibleProperty, value); }
     private DateTime lastLaunchClick = DateTime.MinValue;
     private string lastLaunchKey = "";
     private readonly List<(FrameworkElement Control, string Key, string Hint)> actionControls = new();
@@ -33,9 +35,11 @@ public partial class MainWindow
         CopyButton.Content = UiIcons.Icon("copy");
         StarterButton.Content = UiIcons.Label("▶", "1С:Стартер");
         SettingsButton.Content = UiIcons.Icon("settings");
+        SystemMenuButton.Content = UiIcons.Icon("system"); FeedbackButton.Content = UiIcons.Icon("feedback");
         BasesTab.Content = UiIcons.Label("file", "1С:Предприятие 8");
         LegacyTab.Content = UiIcons.Label("file", "7.7");
         HistoryTab.Content = UiIcons.Label("history", "История");
+        RefreshHistoryButton.Content = UiIcons.Icon("↻");
         EnterpriseButton.Content = UiIcons.Label("▶", "1С:Предприятие");
         DesignerButton.Content = UiIcons.Label("▧", "Конфигуратор");
         Register(EnterpriseButton, "launch", "Запустить 1С:Предприятие · F3");
@@ -44,7 +48,10 @@ public partial class MainWindow
         Register(DesignerMenuButton, "designer", "Варианты запуска Конфигуратора");
         Register(CopyButton, "selected", "Копировать сводную информацию. Правый щелчок — отдельные поля");
         Register(FindHistoryButton, "history", "Найти запись истории в списке баз · Enter");
+        Register(RefreshHistoryButton, "idle", "Обновить список истории · F5");
         Register(SettingsButton, "edit", "Настройки списка и программы · F6");
+        Register(SystemMenuButton, "idle", "Системное меню · Alt+F11");
+        Register(FeedbackButton, "idle", "Сообщить об ошибке или предложить улучшение на GitHub");
         Tool(BaseToolbar, "+", "Добавить базу · Insert", "edit", Add_Click);
         Tool(BaseToolbar, "▾", "Выбрать тип новой базы", "edit", AddMenu_Click, 17);
         Tool(BaseToolbar, "folder-add", "Добавить группу · Ctrl+Insert", "edit", AddGroup_Click);
@@ -292,6 +299,7 @@ public partial class MainWindow
     }
     private void Platforms_Click(object sender, RoutedEventArgs e) => new PlatformsWindow(platforms) { Owner = this }.ShowDialog();
     private void ClearSearch_Click(object sender, RoutedEventArgs e) { SearchBox.Clear(); SearchBox.Focus(); }
+    private void RefreshHistory_Click(object sender, RoutedEventArgs e) { if (Enabled("idle")) BuildRows(); }
     private void FindHistory_Click(object sender, RoutedEventArgs e) { if (HistoryGrid.SelectedItem is LaunchRecord r && catalog.Bases.Any(b => b.Id == r.BaseId)) SelectBase(r.BaseId); }
     private void ToggleSelectedGroup(bool? expand = null)
     {
@@ -301,9 +309,12 @@ public partial class MainWindow
     }
     private void RowAction_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { DataContext: ListRow { Entry: { } b }, Tag: string action }) return;
-        var row = ((IEnumerable<ListRow>)BasesGrid.ItemsSource).First(r => r.Entry?.Id == b.Id); BasesGrid.SelectedItem = row;
+        if (sender is not Button { DataContext: ListRow { Entry: { } b } row, Tag: string action } button) return;
+        if (!InteractionAvailable || !BasesGrid.Items.Contains(row)) return;
+        BasesGrid.SelectedItem = row;
         if (action == "favorite") Favorite_Click(sender, e); else if (action == "edit") Edit_Click(sender, e);
+        else if (action == "launch") Launch(false);
+        else if (action == "launch-menu") { var menu = CreateLaunchMenu(false); menu.Items.Insert(1, Item("Конфигуратор", Designer_Click, "designer", "F4")); OpenMenu(button, menu); }
         e.Handled = true;
     }
     private static bool InButton(object source)
@@ -322,17 +333,21 @@ public partial class MainWindow
         if (ServiceMenu.IsSubmenuOpen && e.Key == Key.Escape) { ServiceMenu.IsSubmenuOpen = false; e.Handled = true; BasesGrid.Focus(); return; }
         if (actionMenuOpen || ServiceMenu.IsSubmenuOpen) return;
         var key = e.Key == Key.System ? e.SystemKey : e.Key; var modifiers = Keyboard.Modifiers;
+        bool editingText = Keyboard.FocusedElement is TextBoxBase or PasswordBox or ComboBox || VersionFilter.IsKeyboardFocusWithin;
         void Do(Action action) { e.Handled = true; if (!e.IsRepeat) action(); }
         if (HandleBaseLaunchKey(key, modifiers, e.IsRepeat)) { e.Handled = true; return; }
         if (key == Key.I && modifiers == (ModifierKeys.Control | ModifierKeys.Alt)) { Do(() => Summary_Click(this, e)); return; }
         if (key == Key.F8 && modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) { Do(() => AssignVersion_Click(this, e)); return; }
-        if (key == Key.Insert && modifiers == ModifierKeys.Shift) { Do(() => { if (Enabled("properties")) Duplicate_Click(this, e); }); return; }
+        if (key == Key.Insert && modifiers == ModifierKeys.Shift && !editingText) { Do(() => { if (Enabled("properties")) Duplicate_Click(this, e); }); return; }
         if (key == Key.P && modifiers == (ModifierKeys.Control | ModifierKeys.Alt)) { Do(() => Lock_Click(this, e)); return; }
         if (key == Key.F11 && modifiers == ModifierKeys.Shift) { Do(() => { if (Enabled("properties") && Selected?.Kind == "File") Edit(Selected, 1); }); return; }
         if (key == Key.F12 && modifiers == ModifierKeys.Shift) { Do(() => BaseFolder_Click(this, e)); return; }
-        if (key == Key.F1 && modifiers == ModifierKeys.None) { Do(() => Help_Click(this, e)); return; }
+        if (key == Key.F1 && modifiers is ModifierKeys.None or ModifierKeys.Alt) { Do(() => Help_Click(this, e)); return; }
+        if (key == Key.B && modifiers == ModifierKeys.Control) { Do(() => { ServiceMenu.Focus(); ServiceMenu.IsSubmenuOpen = true; BookmarksMenu.IsSubmenuOpen = true; BookmarksMenu.Focus(); }); return; }
         if (key == Key.F && modifiers == ModifierKeys.Control) { Do(() => { SearchBox.Focus(); SearchBox.SelectAll(); }); return; }
         if (key == Key.F10 && modifiers == ModifierKeys.Alt) { Do(() => { ServiceMenu.Focus(); ServiceMenu.IsSubmenuOpen = true; }); return; }
+        if (key == Key.F11 && modifiers == ModifierKeys.Alt) { Do(() => { if (Enabled("idle")) SystemMenu_Click(SystemMenuButton, e); }); return; }
+        if (key == Key.M && modifiers is ModifierKeys.Control or ModifierKeys.Alt) { Do(SwitchMonitor); return; }
         if (key is Key.F3 or Key.F4 && modifiers is ModifierKeys.None or ModifierKeys.Control or ModifierKeys.Shift)
         {
             bool designer = key == Key.F4;
@@ -342,7 +357,7 @@ public partial class MainWindow
         if (key == Key.F9 && modifiers == ModifierKeys.None) { Do(() => { if (Enabled("v8")) CheckUpdates_Click(this, e); }); return; }
         if (key == Key.F8 && modifiers == ModifierKeys.None) { Do(() => { if (Enabled("favorite")) Favorite_Click(this, e); }); return; }
         if (key == Key.F6 && modifiers == ModifierKeys.None) { Do(() => { if (CanEdit) Settings_Click(this, e); }); return; }
-        if (key == Key.F5 && modifiers == ModifierKeys.None) { Do(() => { if (Enabled("refresh")) Refresh_Click(this, e); }); return; }
+        if (key == Key.F5 && modifiers == ModifierKeys.None) { Do(() => { if (HistoryTab.IsChecked == true) RefreshHistory_Click(this, e); else if (Enabled("refresh")) Refresh_Click(this, e); }); return; }
         if (key == Key.L && modifiers == ModifierKeys.Control) { Do(() => SnapshotList_Click(this, e)); return; }
         if (key == Key.J && modifiers == ModifierKeys.Control && IsBaseView) { Do(JumpFavorites); return; }
         if (key == Key.Escape)
@@ -351,7 +366,7 @@ public partial class MainWindow
         }
         if (key == Key.Enter && modifiers == ModifierKeys.Alt)
         { Do(() => { if (Enabled("properties")) Edit_Click(this, e); }); return; }
-        if (Keyboard.FocusedElement is TextBoxBase or PasswordBox || Keyboard.FocusedElement is ComboBox || VersionFilter.IsKeyboardFocusWithin) return;
+        if (editingText) return;
         if (modifiers == ModifierKeys.None && key is Key.F11 or Key.F12 && IsBaseView)
         { Do(() => { if (key == Key.F11) Collapse_Click(this, e); else Expand_Click(this, e); }); return; }
         if (key == Key.Insert && modifiers == ModifierKeys.Control && IsBaseView) { Do(() => { if (CanEdit) AddGroup_Click(this, e); }); return; }
@@ -397,7 +412,7 @@ public partial class MainWindow
         }
         catch (Exception ex) { Error("Замена путей", ex); }
     }
-    private void Help_Click(object sender, RoutedEventArgs e) => FormDialog.ShowText(this, "Клавиши и действия", "F3 / F4 — Предприятие / Конфигуратор\nCtrl+F3 / Ctrl+F4 — параметры на один запуск\nShift+F3 / Shift+F4 — запросить вход в 1С\nF5 — обновить сведения\nF6 — настройки\nF8 — избранное\nF9 / Alt+F9 — релиз базы / актуальные релизы\nF11 / F12 — свернуть / развернуть группы\nCtrl+F — поиск, Escape — очистить поиск\nInsert / Ctrl+Insert — база / группа\nAlt+Enter — свойства выбранного элемента\nCtrl+L — снимки каталога\n\nЩелчок по группе выделяет её. Стрелка слева и двойной щелчок сворачивают группу. Правое меню относится к строке под указателем. На вкладке истории Enter находит базу; Delete не удаляет её.");
+    private void Help_Click(object sender, RoutedEventArgs e) => FormDialog.ShowText(this, "Клавиши и действия", "F3 / F4 — Предприятие / Конфигуратор\nCtrl+F3 / Ctrl+F4 — параметры на один запуск\nShift+F3 / Shift+F4 — запросить вход в 1С\nF5 — обновить сведения\nF6 — настройки\nF8 — избранное\nF9 / Alt+F9 — релиз базы / актуальные релизы\nF11 / F12 — свернуть / развернуть группы\nCtrl+F — поиск, Escape — очистить поиск\nInsert / Ctrl+Insert — база / группа\nAlt+Enter — свойства выбранного элемента\nCtrl+L — снимки каталога\nCtrl+B — закладки\nF1 / Alt+F1 — справка\nAlt+F11 — системное меню\nCtrl+M / Alt+M — следующий монитор\n\nЩелчок по группе выделяет её. Стрелка слева и двойной щелчок сворачивают группу. Правое меню относится к строке под указателем. На вкладке истории Enter находит базу; Delete не удаляет её.");
 }
 
 internal sealed class OperationSet

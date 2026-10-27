@@ -11,9 +11,8 @@ public partial class MainWindow
     {
         tray = new System.Windows.Forms.NotifyIcon { Text = "ВанБаз", Icon = AppBrand.TrayIcon, Visible = false };
         var menu = new System.Windows.Forms.ContextMenuStrip();
-        menu.Items.Add("Открыть ВанБаз", null, (_, _) => Dispatcher.Invoke(ShowFromTray));
-        menu.Items.Add("Выход", null, (_, _) => Dispatcher.Invoke(() => { exitRequested = true; Close(); }));
-        tray.ContextMenuStrip = menu; tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
+        menu.Opening += (_, _) => PopulateTrayMenu(menu);
+        tray.ContextMenuStrip = menu; tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray); RefreshTrayMenu();
         StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) lastWindowState = WindowState; if (WindowState == WindowState.Minimized && catalog.Settings.MinimizeToTray) HideToTray(); };
         Closing += (_, e) =>
         {
@@ -27,7 +26,7 @@ public partial class MainWindow
                 SaveWindowPlacement();
                 catalog.Settings.SelectedId = Selected?.Id ?? ""; catalog.Settings.CollapsedGroups = collapsed.ToList(); store.Save(catalog);
             }
-            catch (Exception ex) { e.Cancel = true; exitRequested = false; Error("Не удалось сохранить каталог", ex); }
+            catch (Exception ex) { e.Cancel = true; exitRequested = false; Error("Не удалось сохранить каталог", ex, applicationActions: false); }
         };
         Closed += (_, _) => { CancelTrayAnimation(); DisposeDisplayTracking(); tray?.Dispose(); tray = null; };
     }
@@ -59,6 +58,7 @@ public partial class MainWindow
         form.Choice("size", "Размер шрифта (пт)", (p.FontSize * 72 / 96).ToString("0.##"), new[] { "8", "9", "10", "11", "12", "14", "16", "18", "20", "22", "24", "28" }, true); form.Text("height", "Высота строки", p.RowHeight.ToString());
         form.Check("headers", "Отображать заголовки колонок", p.ShowColumnHeaders); form.Check("tooltips", "Подсказки списка", p.ListTooltips);
         form.Check("alpha", "Сортировать по алфавиту", p.Alphabetical); form.Check("groups", "Группы в начале списка", p.GroupsFirst); form.Check("counts", "Показывать количество дочерних баз", p.ShowCounts);
+        form.Check("rowlaunch", "Отображать кнопку запуска в строке списка", p.ShowLaunchButtonInRow);
         form.Check("platform", "Колонка «Платформа»", p.ShowPlatform); form.Check("date", "Колонка «Дата»", p.ShowDate); form.Check("bytes", "Колонка «Размер»", p.ShowSize);
         form.Check("cell", "Выделять текущую ячейку вместо всей строки", p.CellHighlight);
         form.Section("Цвета списка");
@@ -159,6 +159,7 @@ public partial class MainWindow
             p.StartupMonitor = form.Value("startupmonitor");
             p.NewBaseNameFromFolder = form.Flag("namefolder"); p.NewBaseNameWithDate = form.Flag("namedate");
             p.Alphabetical = form.Flag("alpha"); p.GroupsFirst = form.Flag("groups"); p.ShowCounts = form.Flag("counts"); p.ShowPlatform = form.Flag("platform"); p.ShowDate = form.Flag("date"); p.ShowSize = form.Flag("bytes"); p.CheckExistence = form.Flag("exist");
+            p.ShowLaunchButtonInRow = form.Flag("rowlaunch");
             p.UseListColors = form.Flag("usecolors"); p.UseFavoriteColor = form.Flag("favoriteenabled"); p.DisabledPlatformColors = new[] { "8.1", "8.2", "8.3", "8.4", "8.5" }.Where(v => !form.Flag("usecolor" + v)).ToList();
             p.FavoriteColor = form.Value("favorite"); p.MissingColor = form.Value("missing"); p.ShowHistory = form.Flag("history"); p.ShowStarter = form.Flag("starter");
             p.RestorePosition = form.Flag("position"); p.CloseToTray = form.Flag("close"); p.MinimizeToTray = form.Flag("minimize"); p.EscapeToTray = form.Flag("escape"); p.AfterLaunchAction = form.Value("after"); p.MinimizeAfterLaunch = p.AfterLaunchAction == "Свернуть в панель задач";
@@ -175,6 +176,17 @@ public partial class MainWindow
         if (saved) { ApplyPreferences(); ApplyDesktopSettings(); form.SetChecked("doubleall", false); }
         return saved;
         };
+        form.UseTreeNavigation(
+            ("Общие", "Окно и запуск", null),
+            ("Информационные базы", "Список баз", null),
+            ("Версии платформы и каталоги", "Каталоги и платформа", "Информационные базы"),
+            ("Общие списки", "Источники списков", "Информационные базы"),
+            ("Параметры запуска", "Параметры запуска", null),
+            ("Оформление", "Цвета списка", null),
+            ("Сервис", "Горячие клавиши", null),
+            ("Интеграция Windows", "Интеграция Windows", "Сервис"),
+            ("PROXY", "Интернет", null));
+        form.SelectSection(2);
         return form;
     }
 }

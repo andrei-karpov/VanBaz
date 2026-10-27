@@ -80,7 +80,7 @@ internal static class V16Ui
         finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
 
         var service = (MenuItem)main.FindName("ServiceMenu");
-        Require(service.Items.OfType<MenuItem>().Count() <= 13, "global menu is compact");
+        Require(service.Items.OfType<MenuItem>().Count() <= 14 && Items(service).Any(item => item.Header?.ToString() == "Консоль серверов 1С…"), "global menu remains compact and contains the added server-console command");
         var captions = Items(service).Select(i => i.Header?.ToString() ?? "").ToList();
         Require(!captions.Any(c => c is "Сводная информация…" or "Цвет группы…" or "Создать ярлык базы…" || c.StartsWith("Профили запуска") || c.StartsWith("Блокировка входа")), "base-specific actions do not leak into global menu");
         var grid = (DataGrid)main.FindName("BasesGrid");

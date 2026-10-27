@@ -7,6 +7,11 @@ public sealed record SavedWindowPlacement(ScreenArea Screen, PixelBounds Bounds)
 
 public static class WindowGeometry
 {
+    public static SavedWindowPlacement MoveTo(SavedWindowPlacement saved, ScreenArea target)
+    {
+        var mapped = Fit(new(saved.Screen with { Device = target.Device }, saved.Bounds), new[] { target });
+        return new(mapped.Screen, mapped.Bounds);
+    }
     public static bool Valid(SavedWindowPlacement? p) => p is { Screen.Width: > 0, Screen.Height: > 0, Bounds.Width: > 0, Bounds.Height: > 0 }
         && double.IsFinite(p.Screen.Dpi) && p.Screen.Dpi is >= 48 and <= 960;
 

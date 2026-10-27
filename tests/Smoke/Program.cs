@@ -5,6 +5,8 @@ using System.Text.Json;
 using VanBaz;
 
 if (args.Length == 2 && args[0] == "--screenshots") { InterfaceScreenshots.Run(Path.GetFullPath(args[1])); return; }
+if (args.Length == 2 && args[0] == "--acceptance-only") { AcceptanceUi.Run(Path.GetFullPath(args[1]), false); return; }
+if (args.Length == 2 && args[0] == "--acceptance-live") { AcceptanceUi.Run(Path.GetFullPath(args[1]), true); return; }
 
 if (args.Contains("--clipboard-test")) { NativeClipboardSmoke.Run(false); return; }
 if (args.Contains("--clipboard-read-test")) { NativeClipboardSmoke.Run(true); return; }

@@ -28,6 +28,7 @@ public partial class MainWindow
         SessionGroup.Visibility = Visible(InterfaceMode == "Разработчик");
         BasesGrid.FontFamily = new FontFamily(p.FontName); BasesGrid.FontSize = Math.Clamp(p.FontSize, 10, 38); BasesGrid.RowHeight = Math.Max(p.RowHeight, p.FontSize + 6);
         HistoryGrid.FontFamily = BasesGrid.FontFamily; HistoryGrid.FontSize = BasesGrid.FontSize; HistoryGrid.RowHeight = BasesGrid.RowHeight;
+        RowLaunchVisible = p.ShowLaunchButtonInRow; RowActionsColumn.Width = new DataGridLength(p.ShowLaunchButtonInRow ? 92 : 51);
         ApplyColumnWidths();
         PlatformColumn.Visibility = Visible(p.ShowPlatform); DateColumn.Visibility = Visible(p.ShowDate); SizeColumn.Visibility = Visible(p.ShowSize);
         HistoryTab.Visibility = Visible(p.ShowHistory); StarterPanel.Visibility = Visible(p.ShowStarter);

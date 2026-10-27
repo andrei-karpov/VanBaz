@@ -15,6 +15,8 @@ public class FormDialog : Window
     private StackPanel current = null!;
     private readonly Button accept;
     private readonly Button cancel;
+    private TreeView? sectionTree;
+    private readonly Dictionary<string, TreeViewItem> treeSections = new();
     public Func<bool>? Validate { get; set; }
     public Func<bool>? ApplyChanges { get; set; }
     public FormDialog(string title, double width = 760, double height = 570)
@@ -147,7 +149,32 @@ public class FormDialog : Window
     public bool PasswordChanged(string key) => changedPasswords.Contains(key);
     public string Secret(string key, string original) => changedPasswords.Contains(key) ? SecretStore.Protect(((PasswordBox)fields[key]).Password) : original;
     public bool SetError(string message) { error.Text = message; return false; }
-    public void SelectSection(int index) => navigation.SelectedIndex = index;
+    public void SelectSection(int index)
+    {
+        navigation.SelectedIndex = index;
+        if (navigation.SelectedItem is string section && treeSections.TryGetValue(section, out var item)) { item.IsSelected = true; item.BringIntoView(); }
+    }
+    public void UseTreeNavigation(params (string Caption, string Section, string? Parent)[] sections)
+    {
+        if (sectionTree != null) throw new InvalidOperationException("Дерево разделов уже создано.");
+        var tree = sectionTree = new TreeView { Name = "SettingsNavigation", Width = 200, Margin = new Thickness(0, 0, 10, 0), Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
+        tree.SetResourceReference(Control.ForegroundProperty, "ThemeText");
+        ScrollViewer.SetHorizontalScrollBarVisibility(tree, ScrollBarVisibility.Disabled);
+        var nodes = new Dictionary<string, TreeViewItem>();
+        foreach (var node in sections)
+        {
+            if (!panels.ContainsKey(node.Section)) throw new ArgumentException("Неизвестный раздел: " + node.Section);
+            var item = new TreeViewItem { Header = new TextBlock { Text = node.Caption, TextWrapping = TextWrapping.Wrap }, Tag = node.Section, IsExpanded = true, Padding = new Thickness(3, 4, 3, 4) };
+            item.SetResourceReference(Control.ForegroundProperty, "ThemeText");
+            nodes[node.Caption] = item; treeSections[node.Section] = item;
+            if (node.Parent == null) tree.Items.Add(item); else nodes[node.Parent].Items.Add(item);
+        }
+        tree.SelectedItemChanged += (_, _) => { if (tree.SelectedItem is TreeViewItem { Tag: string section }) navigation.SelectedItem = section; };
+        var root = (DockPanel)Content; DockPanel.SetDock(tree, Dock.Left); root.Children.Insert(root.Children.IndexOf(navigation), tree); navigation.Visibility = Visibility.Collapsed;
+        SizeChanged += (_, _) => tree.Width = Math.Clamp(ActualWidth * .27, 150, 225);
+        tree.Loaded += (_, _) => (tree.SelectedItem as TreeViewItem)?.Focus();
+        SelectSection(navigation.SelectedIndex);
+    }
     public void SetAcceptText(string text)
     {
         accept.Content = text;

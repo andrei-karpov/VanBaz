@@ -16,15 +16,43 @@ public partial class MainWindow
     private void OpenConfigurations(bool watched)
     {
         if (!AllowTools()) return;
+        CreateConfigurationsWindow(watched).ShowDialog();
+    }
+    private Window CreateConfigurationsWindow(bool watched)
+    {
         var w = new Window { Owner = this, Title = watched ? "Актуальные релизы" : "Список конфигураций", Width = 1000, Height = 560, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        DialogBehavior.FitToScreen(w);
         var root = new DockPanel { Margin = new(12) }; w.Content = root;
         var buttons = new WrapPanel(); DockPanel.SetDock(buttons, Dock.Bottom); root.Children.Add(buttons);
         var status = new TextBlock { Text = "Проверка выполняется по команде. Источники можно менять в свойствах конфигурации.", TextWrapping = TextWrapping.Wrap, Margin = new(0, 8, 0, 8) };
         DockPanel.SetDock(status, Dock.Bottom); root.Children.Add(status);
-        var grid = new DataGrid { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, SelectionMode = DataGridSelectionMode.Extended, HeadersVisibility = DataGridHeadersVisibility.Column, FontSize = catalog.Settings.FontSize, RowHeight = Math.Max(catalog.Settings.RowHeight, catalog.Settings.FontSize + 6) };
+        var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(filters, Dock.Top); root.Children.Add(filters);
+        var filter = new TextBox { Name = "ConfigurationFilter", Width = 250, ToolTip = "Поиск по названию, редакции и платформе" };
+        var country = new ComboBox { Name = "CountryFilter", Width = 160, ToolTip = "Отбор по стране" };
+        filters.Children.Add(new TextBlock { Text = "Поиск", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4) }); filters.Children.Add(filter);
+        filters.Children.Add(new TextBlock { Text = "Страна", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 4, 4, 4) }); filters.Children.Add(country);
+        var clear = new Button { Content = "Очистить" }; clear.Click += (_, _) => { filter.Clear(); country.SelectedIndex = 0; }; filters.Children.Add(clear);
+        var grid = new DataGrid { Name = "ConfigurationsGrid", AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, SelectionMode = DataGridSelectionMode.Extended, HeadersVisibility = DataGridHeadersVisibility.Column, FontSize = catalog.Settings.FontSize, RowHeight = Math.Max(catalog.Settings.RowHeight, catalog.Settings.FontSize + 6) };
         void Column(string header, string property, double width) => grid.Columns.Add(new DataGridTextColumn { Header = header, Binding = new Binding(property), Width = width });
         Column("Конфигурация", "Name", 280); Column("Релиз", "LatestVersion", 120); Column("Дата релиза", "ReleaseDate", 115); Column("Проверка", "Status", 330); root.Children.Add(grid);
-        void Refresh() { var id = (grid.SelectedItem as ConfigurationSource)?.Id; grid.ItemsSource = catalog.Configurations.Where(c => !watched || c.Watch).ToList(); grid.SelectedItem = catalog.Configurations.FirstOrDefault(c => c.Id == id); }
+        bool updatingFilters = false;
+        Action updateStates = () => { };
+        void Refresh()
+        {
+            if (updatingFilters) return;
+            var id = (grid.SelectedItem as ConfigurationSource)?.Id;
+            var countries = catalog.Configurations.Select(c => c.Country).Where(c => c.Length > 0).Distinct().OrderBy(c => c).Prepend("Все страны").ToList();
+            if (!country.Items.Cast<string>().SequenceEqual(countries))
+            {
+                string? selected = country.SelectedItem as string; updatingFilters = true;
+                country.ItemsSource = countries; country.SelectedItem = selected != null && countries.Contains(selected) ? selected : "Все страны"; updatingFilters = false;
+            }
+            string term = filter.Text.Trim(); string selectedCountry = country.SelectedItem as string ?? "Все страны";
+            var rows = catalog.Configurations.Where(c => (!watched || c.Watch) && (selectedCountry == "Все страны" || c.Country == selectedCountry) && (term.Length == 0 || (c.Name + " " + c.ShortName + " " + c.Edition + " " + c.Platform).Contains(term, StringComparison.CurrentCultureIgnoreCase))).ToList();
+            grid.ItemsSource = rows; grid.SelectedItem = rows.FirstOrDefault(c => c.Id == id);
+            updateStates();
+        }
+        filter.TextChanged += (_, _) => Refresh(); country.SelectionChanged += (_, _) => Refresh();
         bool busy = false;
         var selectedButtons = new List<Button>();
         void Button(string text, Action action, bool selection = false) { var b = new Button { Content = text }; b.Click += (_, _) => { if (busy) return; try { action(); } catch (Exception ex) { Error(text, ex); } }; buttons.Children.Add(b); if (selection) selectedButtons.Add(b); }
@@ -43,7 +71,7 @@ public partial class MainWindow
         check.Click += async (_, _) =>
         {
             if (busy) return;
-            var items = grid.SelectedItems.Count > 0 ? grid.SelectedItems.Cast<ConfigurationSource>().ToArray() : catalog.Configurations.Where(c => c.Watch).ToArray();
+            var items = grid.SelectedItems.Count > 0 ? grid.SelectedItems.Cast<ConfigurationSource>().ToArray() : grid.Items.Cast<ConfigurationSource>().Where(c => c.Watch).ToArray();
             busy = true; stop = false; States();
             try
             {
@@ -70,11 +98,13 @@ public partial class MainWindow
         {
             foreach (var button in buttons.Children.OfType<Button>()) button.IsEnabled = !busy;
             foreach (var button in selectedButtons) button.IsEnabled = !busy && grid.SelectedItem != null;
-            cancel.IsEnabled = busy; check.IsEnabled = !busy && (grid.SelectedItems.Count > 0 || catalog.Configurations.Any(c => c.Watch));
+            filters.IsEnabled = !busy;
+            cancel.IsEnabled = busy; check.IsEnabled = !busy && (grid.SelectedItems.Count > 0 || grid.Items.Cast<ConfigurationSource>().Any(c => c.Watch));
         }
+        updateStates = States;
         grid.SelectionChanged += (_, _) => States();
         w.PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { e.Handled = true; w.Close(); } };
-        Refresh(); States(); w.ShowDialog();
+        Refresh(); States(); return w;
     }
     private void EditConfiguration(ConfigurationSource? original, Window owner)
     {
@@ -136,20 +166,25 @@ public partial class MainWindow
     private async void DetectConfiguration_Click(object sender, RoutedEventArgs e)
     {
         if (!AllowTools() || Selected is not { } b) return;
-        var f = new FormDialog("Определить конфигурацию · " + b.Name, 720, 420) { Owner = this }; f.Section("Внешнее соединение");
+        var result = await ReadConfigurationMetadata(b.Copy(), this);
+        if (result != null) { Commit(() => { b.ConfigurationName = result.Name; b.ConfigurationVersion = result.Version; }); StatusText.Text = result.Name + " · " + result.Version; }
+    }
+    private async Task<BridgeResult?> ReadConfigurationMetadata(BaseEntry b, Window owner)
+    {
+        if (!AllowTools() || b.Kind == "Web" || b.Version == "7.7") return null;
+        var f = new FormDialog("Определить конфигурацию · " + b.Name, 720, 420) { Owner = owner }; f.Section("Внешнее соединение");
         f.Choice("arch", "COMConnector", b.Architecture == "x86" ? "x86" : "x64", new[] { "x86", "x64" });
         f.Note("Будет открыто внешнее соединение с базой под пользователем Конфигуратора из её свойств. Нужен зарегистрированный COMConnector выбранной разрядности. Код внешнего соединения конфигурации может выполняться при подключении.");
-        f.SetAcceptText("Определить"); if (f.ShowDialog() != true || isolatedSession) return;
-        if (!operations.Add(b.Id)) { MessageBox.Show("Операция с базой уже выполняется."); return; }
+        f.SetAcceptText("Определить"); if (f.ShowDialog() != true || isolatedSession) return null;
+        if (!operations.Add(b.Id)) { MessageBox.Show("Операция с базой уже выполняется."); return null; }
         try
         {
             StatusText.Text = "Чтение метаданных: " + b.Name;
             var result = await PlatformBridge.Execute(b, "metadata", f.Value("arch"));
             if (!Version.TryParse(result.Version, out _)) throw new IOException("Платформа не вернула корректный номер версии.");
-            Commit(() => { b.ConfigurationName = result.Name; b.ConfigurationVersion = result.Version; });
-            StatusText.Text = result.Name + " · " + result.Version;
+            return result;
         }
-        catch (Exception ex) { Error("Определение конфигурации", ex); }
+        catch (Exception ex) { Error("Определение конфигурации", ex); return null; }
         finally { operations.Remove(b.Id); }
     }
     private void SessionLock_Click(object sender, RoutedEventArgs e)

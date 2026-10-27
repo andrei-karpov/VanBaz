@@ -89,18 +89,39 @@ public partial class MainWindow
     }
     private void RefreshTrayMenu()
     {
-        if (tray == null) return;
-        var menu = new System.Windows.Forms.ContextMenuStrip();
-        menu.Items.Add("Открыть ВанБаз", null, (_, _) => Dispatcher.Invoke(ShowFromTray));
-        if (!locked)
-            foreach (var entry in catalog.Bases.Where(b => b.Favorite && (catalog.Settings.EnableLegacy77 || b.Version != "7.7")).OrderBy(b => b.Name))
-            {
-                string id = entry.Id;
-                menu.Items.Add(entry.Name, null, (_, _) => Dispatcher.Invoke(() => { ShowFromTray(); if (SelectBaseInList(id)) Launch(false); }));
-            }
+        if (tray?.ContextMenuStrip is { Visible: false } menu) PopulateTrayMenu(menu);
+    }
+    private void PopulateTrayMenu(System.Windows.Forms.ContextMenuStrip menu)
+    {
+        foreach (var item in menu.Items.Cast<System.Windows.Forms.ToolStripItem>().ToArray()) { menu.Items.Remove(item); item.Dispose(); }
+        System.Windows.Forms.ToolStripMenuItem Action(string caption, bool enabled, Action action)
+        {
+            var item = new System.Windows.Forms.ToolStripMenuItem(caption) { Enabled = enabled, ToolTipText = enabled ? caption : "Действие недоступно в текущем режиме или во время операции." };
+            item.Click += (_, _) => Dispatcher.Invoke(action); return item;
+        }
+        menu.Items.Add(Action("Открыть ВанБаз", true, ShowFromTray));
+        var favorites = new System.Windows.Forms.ToolStripMenuItem("Избранные базы") { Enabled = Enabled("idle") };
+        foreach (var entry in catalog.Bases.Where(b => b.Favorite && (catalog.Settings.EnableLegacy77 || b.Version != "7.7")).OrderBy(b => b.Name))
+        {
+            string id = entry.Id; var favorite = new System.Windows.Forms.ToolStripMenuItem(entry.Name.Replace("&", "&&"));
+            favorite.DropDownItems.Add(Action("1С:Предприятие", Enabled("idle"), () => LaunchFromTray(id, false)));
+            if (entry.Kind != "Web") favorite.DropDownItems.Add(Action("Конфигуратор", CanEdit, () => LaunchFromTray(id, true)));
+            favorites.DropDownItems.Add(favorite);
+        }
+        if (favorites.DropDownItems.Count == 0) favorites.DropDownItems.Add(new System.Windows.Forms.ToolStripMenuItem("Список избранных пуст") { Enabled = false });
+        menu.Items.Add(favorites); menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        void FromWindow(RoutedEventHandler handler) { ShowFromTray(); handler(this, new RoutedEventArgs()); }
+        menu.Items.Add(Action("Временная блокировка…", Enabled("idle"), () => { if (Enabled("idle")) FromWindow(Lock_Click); }));
+        menu.Items.Add(Action("Снимок экрана…", Enabled("idle"), () => { if (Enabled("idle")) Screenshot_Click(this, new RoutedEventArgs()); }));
+        menu.Items.Add(Action("Каталог настроек", Enabled("idle"), () => { if (Enabled("idle")) DataFolder_Click(this, new RoutedEventArgs()); }));
+        menu.Items.Add(Action("Настройки…", CanEdit, () => { if (CanEdit) FromWindow(Settings_Click); }));
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        menu.Items.Add("Выход", null, (_, _) => Dispatcher.Invoke(() => { if (!locked) { exitRequested = true; Close(); } }));
-        var previous = tray.ContextMenuStrip; tray.ContextMenuStrip = menu; previous?.Dispose();
+        menu.Items.Add(Action("Выход", Enabled("idle"), () => { if (Enabled("idle")) { exitRequested = true; Close(); } }));
+    }
+    private void LaunchFromTray(string id, bool designer)
+    {
+        if (!Enabled("idle") || designer && !CanEdit) return;
+        ShowFromTray(); if (SelectBaseInList(id)) Launch(designer);
     }
     private void Screenshot_Click(object sender, RoutedEventArgs e)
     {
