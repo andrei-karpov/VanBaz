@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Version>0.21.0</Version>
+    <ApplicationIcon>Assets\VanBaz.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>VanBaz</AssemblyName>
+    <Product>ВанБаз (VanBaz)</Product>
+    <Title>ВанБаз</Title>
+    <Description>Менеджер информационных баз 1С</Description>
+  </PropertyGroup>
+  <ItemGroup><Resource Include="Assets\VanBaz.ico" /></ItemGroup>
+</Project>
