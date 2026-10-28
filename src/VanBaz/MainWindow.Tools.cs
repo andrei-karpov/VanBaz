@@ -102,6 +102,7 @@ public partial class MainWindow
             item.Click += (_, _) => Dispatcher.Invoke(action); return item;
         }
         menu.Items.Add(Action("Открыть ВанБаз", true, ShowFromTray));
+        menu.Items.Add(Action("Панель избранного", true, ShowTrayPanel));
         var favorites = new System.Windows.Forms.ToolStripMenuItem("Избранные базы") { Enabled = Enabled("idle") };
         foreach (var entry in catalog.Bases.Where(b => b.Favorite && (catalog.Settings.EnableLegacy77 || b.Version != "7.7")).OrderBy(b => b.Name))
         {
