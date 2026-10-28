@@ -6,7 +6,7 @@
 
 ## Скачать и запустить
 
-[Скачать ВанБаз 0.21.0 для Windows x64](https://github.com/andrei-karpov/VanBaz/releases/download/v0.21.0/VanBaz-0.21.0-win-x64-portable.zip) · [Все релизы](https://github.com/andrei-karpov/VanBaz/releases)
+[Скачать ВанБаз 0.23.1 для Windows x64](https://github.com/andrei-karpov/VanBaz/releases/download/v0.23.1/VanBaz-0.23.1-win-x64-portable.zip) · [Все релизы](https://github.com/andrei-karpov/VanBaz/releases)
 
 Для запуска нужен **[.NET Desktop Runtime 8 для Windows x64](https://dotnet.microsoft.com/ru-ru/download/dotnet/8.0)**. На странице Microsoft выберите раздел «Среда выполнения рабочего стола .NET», затем установщик Windows x64. Если эта среда уже установлена, повторная установка не нужна.
 
