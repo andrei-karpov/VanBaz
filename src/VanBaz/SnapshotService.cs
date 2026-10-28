@@ -16,6 +16,12 @@ public sealed record SnapshotItem(string Path, string Description, string Platfo
 }
 public static class SnapshotService
 {
+    public static bool AutomaticDue(Preferences preferences, DateTime now) => preferences.AutoSnapshot && (!preferences.LastAutoSnapshot.HasValue || preferences.LastAutoSnapshot > now.AddDays(1) || now - preferences.LastAutoSnapshot.Value >= TimeSpan.FromDays(Math.Clamp(preferences.AutoSnapshotDays, 1, 3650)));
+    public static bool SaveAutomatic(CatalogStore store, Catalog catalog, DateTime now)
+    {
+        if (!AutomaticDue(catalog.Settings, now) || !File.Exists(store.FilePath)) return false;
+        Save(store, catalog, "Автоматический снимок при запуске", "Все"); catalog.Settings.LastAutoSnapshot = now; store.Save(catalog); return true;
+    }
     public static readonly string[] Platforms = { "Все", "8.1", "8.2", "8.3", "8.4", "8.5", "7.7" };
     public static bool Matches(BaseEntry entry, string platform) => platform == "Все" || entry.Version == platform || entry.Version.StartsWith(platform + ".", StringComparison.Ordinal);
     public static string Save(CatalogStore store, Catalog catalog, string description, string platform)

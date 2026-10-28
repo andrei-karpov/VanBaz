@@ -188,14 +188,13 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { catalog = old; BuildRows(); Error("Изменение не сохранено", ex); return false; }
     }
+    internal ProcessStartInfo FailureRestartPlan() => RestartPlan.Create(Path.Combine(AppContext.BaseDirectory, "VanBaz.exe"), store.Folder, InterfaceMode, modeLocked);
     private void Error(string title, Exception ex, bool applicationActions = true)
     {
         var owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? this;
-        var dialog = new ErrorDialog(title, ex, applicationActions && owner == this && Enabled("idle") && !isolatedSession);
-        if (owner.IsVisible) dialog.Owner = owner;
-        dialog.ShowDialog();
-        if (dialog.SelectedAction == "restart") Restart_Click(this, new RoutedEventArgs());
-        else if (dialog.SelectedAction == "exit") { exitRequested = true; Close(); }
+        string action = ErrorDialog.Present(title, ex, owner, applicationActions && owner == this && Enabled("idle") && !isolatedSession);
+        if (action == "restart") Restart_Click(this, new RoutedEventArgs());
+        else if (action == "exit") { exitRequested = true; Close(); }
     }
     private void Edit(BaseEntry? entry, int section = 0)
     {
@@ -226,6 +225,7 @@ public partial class MainWindow : Window
         if (operations.Count > 0) { MessageBox.Show("Дождитесь завершения операции с базой."); return; }
         var b = Selected;
         if (b == null || !catalog.Settings.EnableLegacy77 && (temporary ?? b).Version == "7.7") return;
+        if (!ConfirmRepeatedLaunch(b, designer)) return;
         string launchKey = b.Id + ":" + designer;
         if (launchKey == lastLaunchKey && DateTime.UtcNow - lastLaunchClick < TimeSpan.FromMilliseconds(700)) return;
         lastLaunchKey = launchKey; lastLaunchClick = DateTime.UtcNow;
@@ -245,8 +245,24 @@ public partial class MainWindow : Window
                 catch (TimeoutException) { throw new IOException("Поиск платформ ещё выполняется. Повторите запуск после его завершения или закрепите нужный EXE в свойствах базы."); }
             }
             var available = platforms.ToList();
-            using var process = await Task.Run(() => LaunchService.Start(LaunchService.Build(launch, designer, client, available)));
-            Commit(() => { b.LastLaunch = DateTime.Now; catalog.History.Insert(0, new() { BaseId = b.Id, Name = b.Name, Mode = designer ? "Конфигуратор" : "Предприятие", Time = DateTime.Now }); catalog.History = catalog.History.Take(200).ToList(); });
+            if (catalog.Settings.ConnectionMode == "/IBName" && launch.Version != "7.7")
+            {
+                if (catalog.Bases.Count(item => item.Name.Equals(launch.Name, StringComparison.OrdinalIgnoreCase)) != 1) throw new InvalidOperationException("В каталоге несколько баз с этим именем. Выберите /IBConnectionString или прямой путь в настройках запуска.");
+                var session = await Task.Run(() => OfficialListSession.Load()).WaitAsync(TimeSpan.FromSeconds(15)); session.ValidateLaunchName(launch);
+            }
+            if (!ChooseConnectionSpeed(launch)) return;
+            var plan = await Task.Run(() => LaunchService.Build(launch, designer, client, available, connectionMode: catalog.Settings.ConnectionMode));
+            if (launch.Kind == "Server" && launch.CheckServerAgent)
+            {
+                AgentVersionResult check;
+                try { check = await Task.Run(() => ServerVersionProbe.Evaluate(launch, System.Diagnostics.FileVersionInfo.GetVersionInfo(plan.FileName).FileVersion ?? "", ServerServices.Read(), Environment.MachineName)).WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch (Exception ex) { check = new(false, false, "Проверка агента не выполнена: " + ex.Message); }
+                if (!check.Compatible && MessageBox.Show(this, check.Message + "\n\nПродолжить запуск без подтверждения совместимости?", "Версия агента сервера", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+            }
+            using var process = await Task.Run(() => LaunchService.Start(plan));
+            DateTime? processStarted = null; try { processStarted = process.StartTime; } catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            Commit(() => { b.LastLaunch = DateTime.Now; catalog.History.Insert(0, new() { BaseId = b.Id, Name = b.Name, Mode = designer ? "Конфигуратор" : "Предприятие", Time = DateTime.Now, ProcessId = process.Id, ProcessStarted = processStarted }); catalog.History = catalog.History.Take(200).ToList(); });
+            NotifyClientStarted(b, designer);
             StatusText.Text = "Создан процесс " + process.Id + " · " + b.Name;
             switch (catalog.Settings.AfterLaunchAction.StartsWith("Закрыть ", StringComparison.Ordinal) ? "Закрыть ВанБаз" : catalog.Settings.AfterLaunchAction)
             {
@@ -265,9 +281,7 @@ public partial class MainWindow : Window
         if (!IsBaseView || !AllowTools()) return;
         if (Selected is not { } b) { if (IsRealGroup) DeleteGroup(); return; }
         if (b.DisallowDelete) { MessageBox.Show("Удаление записи запрещено в свойствах базы.", "ВанБаз"); return; }
-        if (InterfaceMode == "Разработчик" && b.Kind == "File" && b.Version != "7.7") { DeleteBaseFile(b); return; }
-        if (MessageBox.Show("Удалить «" + b.Name + "» из списка ВанБаз?\nФайлы информационной базы останутся на месте.", "Удаление записи", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes)
-            Commit(() => catalog.Bases.Remove(b));
+        DeleteBaseFile(b);
     }
     private void Favorite_Click(object sender, RoutedEventArgs e) { if (!locked && operations.Count == 0 && Selected is { } b) Commit(() => b.Favorite = !b.Favorite); }
     private void Import_Click(object sender, RoutedEventArgs e)

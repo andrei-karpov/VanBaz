@@ -8,41 +8,28 @@ public partial class MainWindow
 {
     private void AlternativeLists_Click(object sender, RoutedEventArgs e) => EditListSources();
     private void RefreshLists_Click(object sender, RoutedEventArgs e) => ReadListSources();
-    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    private void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
-        if (!AllowTools() || Selected is not { } b) return;
-        var configurations = catalog.Configurations.Select(c => (Label: c.Name + " [" + c.Id + "]", Source: c)).ToList();
-        var selectedSource = configurations.FirstOrDefault(c => c.Source.Id == b.ConfigurationId);
-        string url = selectedSource.Source?.InfoUrl ?? b.UpdateInfoUrl;
-        if (url.Length == 0)
-        {
-        var f = new FormDialog("Проверка релиза · " + b.Name, 770, 490) { Owner = this };
-        f.Section("Конфигурация"); f.Choice("source", "Из каталога", selectedSource.Label ?? "", new[] { "" }.Concat(configurations.Select(c => c.Label)));
-        f.Section("Источник релизов"); f.Text("version", "Текущая версия", b.ConfigurationVersion); f.Text("url", "UpdInfo.txt (HTTPS)", b.UpdateInfoUrl);
-        f.Note("Укажите адрес публичного UpdInfo.txt производителя именно этой конфигурации. Проверяется номер релиза из файла; данные базы и пароли не отправляются. Доступность и актуальность публикации зависят от производителя.");
-        if (b.ReleaseChecked.HasValue) f.Note($"Последняя проверка: {b.ReleaseChecked:dd.MM.yyyy HH:mm}. В источнике: {b.LatestRelease}.");
-        f.SetAcceptText("Проверить");
-        f.Validate = () => configurations.Any(c => c.Label == f.Value("source")) || Uri.TryCreate(f.Value("url"), UriKind.Absolute, out var uri) && uri.Scheme == "https" && uri.UserInfo.Length == 0 || f.SetError("Выберите конфигурацию из каталога или укажите HTTPS-адрес.");
-        if (f.ShowDialog() != true) return;
-        var choice = configurations.FirstOrDefault(c => c.Label == f.Value("source"));
-        if (!Commit(() => { b.UpdateInfoUrl = f.Value("url"); b.ConfigurationVersion = f.Value("version"); b.ConfigurationId = choice.Source?.Id ?? ""; })) return;
-        url = choice.Source?.InfoUrl ?? b.UpdateInfoUrl;
-        }
-        if (isolatedSession) return;
-        try
-        {
-            StatusText.Text = "Проверяется опубликованный релиз…";
-            var info = await ReleaseService.Fetch(url, catalog.Settings);
-            string result = System.Version.TryParse(b.ConfigurationVersion, out var current) ? new Version(info.Version).CompareTo(current) switch { > 0 => "В источнике опубликован более новый релиз.", 0 => "Номера версий совпадают.", _ => "Версия в источнике старше указанной версии базы." } : "Текущая версия базы не задана: сравнение не выполнено.";
-            Commit(() => { b.LatestRelease = info.Version; b.ReleaseChecked = DateTime.Now; });
-            var output = new FormDialog("Результат проверки релиза", 780, 540) { Owner = this }; output.Section("Релиз");
-            output.Note(result + "\n\nРелиз: " + info.Version + "\nТекущий: " + b.ConfigurationVersion + "\nДата публикации: " + info.Date + "\nОбновление с версий: " + info.FromVersions + "\nИсточник: " + url);
-            var source = catalog.Configurations.FirstOrDefault(c => c.Id == b.ConfigurationId);
-            if (source != null) output.ActionButton("Дистрибутивы…", () => OpenDistributions(source, output));
-            output.Note("Для установки используйте «Обновления → Установить CFU / CF».");
-            output.SetAcceptText("Закрыть"); output.ShowDialog();
-        }
-        catch (Exception ex) { StatusText.Text = "Проверка релиза не выполнена."; Error("Проверка релиза", ex); }
+        if (!AllowTools() || Selected is not { } entry) return;
+        CreateReleaseCheckWindow(entry).ShowDialog();
+    }
+    private Window CreateReleaseCheckWindow(BaseEntry entry,
+        Func<string, bool, System.Threading.CancellationToken, Task<ReleaseInfo>>? read = null)
+    {
+        return new BaseReleaseWindow(entry.Copy(), catalog.Configurations,
+            read ?? ((address, local, token) => local ? ReleaseService.ReadLocal(address, token)
+                : isolatedSession ? Task.FromException<ReleaseInfo>(new InvalidOperationException("В проверочном сеансе сеть отключена."))
+                : ReleaseService.Fetch(address, catalog.Settings, token)),
+            selection => CanEdit && Commit(() =>
+            {
+                var current = catalog.Bases.Single(b => b.Id == entry.Id);
+                current.ConfigurationVersion = selection.CurrentVersion;
+                current.UseLocalUpdateInfo = selection.Local;
+                if (selection.Local) current.LocalUpdateInfoFile = selection.Address;
+                else { current.UpdateInfoUrl = selection.Address; current.ConfigurationId = selection.ConfigurationId; }
+                current.LatestRelease = selection.Release.Version; current.ReleaseChecked = DateTime.Now;
+            }),
+            (owner, source, version) => { if (!isolatedSession && CanEdit) OpenDistributions(source, owner, version); }) { Owner = this };
     }
     private void Lock_Click(object sender, RoutedEventArgs e)
     {

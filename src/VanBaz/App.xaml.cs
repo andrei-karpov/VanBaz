@@ -9,16 +9,27 @@ namespace VanBaz;
 public partial class App : Application
 {
     internal System.Diagnostics.ProcessStartInfo? RestartStartInfo { get; set; }
+    internal bool IsFatalShutdown { get; private set; }
+    private bool presentingFatalError;
+    private StartupOptions? startupOptions;
+    private string? startupData;
+    private string startupMode = "Специалист";
     private Mutex? catalogMutex;
     private bool ownsMutex;
     private InstanceBridge? bridge;
     protected override void OnStartup(StartupEventArgs e)
     {
+        DispatcherUnhandledException += (_, args) =>
+        {
+            args.Handled = true;
+            FatalError("Необработанная ошибка ВанБаз", args.Exception);
+        };
         base.OnStartup(e);
         try
         {
             var options = StartupOptions.Parse(e.Args, AppContext.BaseDirectory, Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
             var data = options.DataFolder ?? Path.Combine(AppContext.BaseDirectory, "Data");
+            startupOptions = options; startupData = data;
             string mutexName = "Local\\VanBaz-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(data).TrimEnd('\\').ToUpperInvariant())));
             catalogMutex = new Mutex(false, mutexName);
             try { ownsMutex = catalogMutex.WaitOne(0); }
@@ -31,6 +42,7 @@ public partial class App : Application
             }
             var store = new CatalogStore(data);
             var catalog = store.Load();
+            startupMode = options.Mode ?? catalog.Settings.InterfaceMode;
             int migrationIndex = Array.IndexOf(e.Args, "--import-startmanager");
             if (migrationIndex >= 0)
             {
@@ -48,7 +60,7 @@ public partial class App : Application
                 if (File.Exists(store.FilePath)) store.Snapshot();
                 FeatureMigration.Apply(catalog); store.Save(catalog);
             }
-            else if (catalog.Settings.AutoSnapshot && File.Exists(store.FilePath)) SnapshotService.Save(store, catalog, "Автоматический снимок при запуске", "Все");
+            else SnapshotService.SaveAutomatic(store, catalog, DateTime.Now);
             int themeIndex = Array.IndexOf(e.Args, "--import-themes");
             if (themeIndex >= 0)
             {
@@ -74,12 +86,27 @@ public partial class App : Application
         {
             if (e.Args.Contains("--import-only"))
             {
-                var log = Path.Combine(AppContext.BaseDirectory, "import-error.txt"); File.WriteAllText(log, ex.Message); Shutdown(1); return;
+                try { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "import-error.txt"), ex.Message); } catch { }
+                IsFatalShutdown = true; Shutdown(1); return;
             }
-            MessageBox.Show("Не удалось открыть каталог ВанБаз.\n\n" + ex.Message +
-                "\n\nФайлы каталога сохранены. Можно выбрать другую папку через --data-dir.", "ВанБаз", MessageBoxButton.OK, MessageBoxImage.Error);
-            Shutdown(1);
+            FatalError("Не удалось запустить ВанБаз", ex);
         }
+    }
+    private void FatalError(string title, Exception error)
+    {
+        IsFatalShutdown = true;
+        if (presentingFatalError) { Shutdown(1); return; }
+        presentingFatalError = true;
+        try
+        {
+            string executable = Path.Combine(AppContext.BaseDirectory, "VanBaz.exe");
+            bool canRestart = startupData != null && File.Exists(executable);
+            string action = ErrorDialog.Present(title, error, MainWindow, canRestart, fatal: true);
+            RestartStartInfo = action == "restart" && canRestart
+                ? MainWindow is VanBaz.MainWindow main ? main.FailureRestartPlan()
+                    : RestartPlan.Create(executable, startupData!, startupMode, startupOptions?.LockMode == true) : null;
+        }
+        finally { Shutdown(1); }
     }
     protected override void OnExit(ExitEventArgs e)
     {

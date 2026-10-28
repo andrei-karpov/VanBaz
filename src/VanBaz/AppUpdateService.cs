@@ -20,11 +20,15 @@ public static class AppUpdateService
     public static PreparedAppUpdate Prepare(string package, string workFolder)
     {
         using var zip = ZipFile.OpenRead(package);
-        if (zip.Entries.Count != Files.Length + 1 || zip.Entries.Select(e => e.FullName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != zip.Entries.Count || zip.Entries.Any(e => !Files.Contains(e.FullName) && e.FullName != "vanbaz-package.json")) throw new InvalidDataException("Пакет должен содержать только четыре файла ВанБаз и vanbaz-package.json, без вложенных папок.");
-        var manifestEntry = zip.GetEntry("vanbaz-package.json")!;
-        if (manifestEntry.Length > 65536 || zip.Entries.Sum(e => e.Length) > 256 * 1024 * 1024) throw new InvalidDataException("Превышен допустимый размер пакета.");
-        AppPackage manifest; using (var input = manifestEntry.Open()) manifest = JsonSerializer.Deserialize<AppPackage>(input) ?? throw new InvalidDataException("Повреждён манифест пакета.");
-        if (!Version.TryParse(manifest.Version, out var version) || version.Build < 0 || manifest.Files == null || manifest.Files.Count != Files.Length || Files.Any(f => !manifest.Files.TryGetValue(f, out var hash) || hash == null || hash.Length != 64 || !hash.All(Uri.IsHexDigit))) throw new InvalidDataException("Повреждён список файлов пакета.");
+        if (zip.Entries.Select(e => e.FullName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != zip.Entries.Count || Files.Any(f => zip.GetEntry(f) == null) || zip.Entries.Any(e => !Files.Contains(e.FullName) && e.FullName is not ("vanbaz-package.json" or "README.txt"))) throw new InvalidDataException("Ожидался компактный ZIP ВанБаз: четыре файла программы, README.txt и/или vanbaz-package.json, без вложенных папок.");
+        var manifestEntry = zip.GetEntry("vanbaz-package.json");
+        if (manifestEntry?.Length > 65536 || zip.Entries.Sum(e => e.Length) > 256 * 1024 * 1024) throw new InvalidDataException("Превышен допустимый размер пакета.");
+        AppPackage? manifest = null;
+        if (manifestEntry != null)
+        {
+            using var input = manifestEntry.Open(); manifest = JsonSerializer.Deserialize<AppPackage>(input) ?? throw new InvalidDataException("Повреждён манифест пакета.");
+            if (!Version.TryParse(manifest.Version, out var version) || version.Build < 0 || manifest.Files == null || manifest.Files.Count != Files.Length || Files.Any(f => !manifest.Files.TryGetValue(f, out var hash) || hash == null || hash.Length != 64 || !hash.All(Uri.IsHexDigit))) throw new InvalidDataException("Повреждён список файлов пакета.");
+        }
         string stage = Path.Combine(Path.GetFullPath(workFolder), "update-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(stage);
         try
         {
@@ -38,10 +42,14 @@ public static class AppUpdateService
                     output.Flush(true);
                 }
                 using var content = File.OpenRead(path);
-                if (!Convert.ToHexString(SHA256.HashData(content)).Equals(manifest.Files[file], StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Контрольная сумма не совпадает: " + file);
+                if (manifest != null && !Convert.ToHexString(SHA256.HashData(content)).Equals(manifest.Files[file], StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Контрольная сумма не совпадает: " + file);
             }
             var assembly = AssemblyName.GetAssemblyName(Path.Combine(stage, "VanBaz.dll"));
-            if (assembly.Name != "VanBaz" || assembly.Version?.ToString(3) != new Version(manifest.Version).ToString(3)) throw new InvalidDataException("Версия сборки отличается от манифеста.");
+            if (assembly.Name != "VanBaz" || assembly.Version == null || manifest != null && assembly.Version.ToString(3) != new Version(manifest.Version).ToString(3)) throw new InvalidDataException("Сборка не является ВанБаз или её версия отличается от манифеста.");
+            PlatformCatalog.Architecture(Path.Combine(stage, "VanBaz.exe"));
+            using (JsonDocument.Parse(File.ReadAllText(Path.Combine(stage, "VanBaz.runtimeconfig.json")))) { }
+            using (JsonDocument.Parse(File.ReadAllText(Path.Combine(stage, "VanBaz.deps.json")))) { }
+            manifest ??= ProgramVersions.Manifest(stage);
             File.WriteAllText(Path.Combine(stage, "vanbaz-package.json"), JsonSerializer.Serialize(manifest));
             return new(stage, manifest.Version);
         }
@@ -53,13 +61,18 @@ public static class AppUpdateService
             throw;
         }
     }
-    public static async Task StartInstaller(PreparedAppUpdate prepared, string dataFolder)
+    public static async Task StartInstaller(PreparedAppUpdate prepared, string dataFolder, string mode = "Разработчик", bool lockMode = false)
     {
         if (PortableDistribution.IncludesRuntime(AppContext.BaseDirectory)) throw new IOException("Для портативной сборки скачайте полный ZIP из Releases. Закройте ВанБаз и распакуйте обновление в папку программы, сохранив Data.");
         string executable = Environment.ProcessPath ?? throw new IOException("Не найден путь ВанБаз.");
         if (Path.GetFileName(executable) != "VanBaz.exe") throw new IOException("Обновление доступно из VanBaz.exe.");
         string root = Path.GetDirectoryName(executable)!;
-        var plan = new { Root = root, Stage = prepared.Folder, Data = Path.GetFullPath(dataFolder), Pid = Environment.ProcessId, Started = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks, Files };
+        ProgramVersions.Validate(prepared.Folder);
+        ProgramVersions.Archive(root, dataFolder);
+        ProgramVersions.Archive(prepared.Folder, dataFolder);
+        prepared = ProgramVersions.Stage(prepared, dataFolder);
+        var restart = RestartPlan.Create(executable, dataFolder, mode, lockMode);
+        var plan = new { Root = root, Stage = prepared.Folder, Data = Path.GetFullPath(dataFolder), Arguments = string.Join(" ", restart.ArgumentList.Select(DesktopIntegration.Quote)), Pid = Environment.ProcessId, Started = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks, Files };
         string script = Path.Combine(prepared.Folder, "install.ps1"), request = Path.Combine(prepared.Folder, "install.json");
         File.WriteAllText(script, Installer, new System.Text.UTF8Encoding(true)); File.WriteAllText(request, JsonSerializer.Serialize(plan));
         var info = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"System32\WindowsPowerShell\v1.0\powershell.exe")) { UseShellExecute = false, CreateNoWindow = true };
@@ -108,7 +121,7 @@ public static class AppUpdateService
             finally { if(Test-Path -LiteralPath $pending) { Remove-Item -LiteralPath $pending } }
           }
           [IO.File]::WriteAllText($result,'Installed. Previous program files: '+$previous)
-          Start-Process -FilePath (Join-Path $plan.Root 'VanBaz.exe') -ArgumentList @('--data-dir',('"'+$plan.Data+'"')) -WindowStyle Hidden
+          Start-Process -FilePath (Join-Path $plan.Root 'VanBaz.exe') -ArgumentList $plan.Arguments -WindowStyle Hidden
         } catch {
           $failure=$_.Exception.Message
           foreach($name in $changed) { try { Copy-Item -LiteralPath (Join-Path $previous $name) -Destination (Join-Path $plan.Root $name) -Force } catch { $failure+='; rollback: '+$_.Exception.Message } }

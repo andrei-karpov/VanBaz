@@ -8,7 +8,7 @@ public static class LaunchService
 {
     public static List<PlatformInfo> Discover() => PlatformCatalog.Scan().Platforms;
 
-    public static ProcessStartInfo Build(BaseEntry entry, bool designer, string client, IEnumerable<PlatformInfo> platforms, bool includeExtras = true, bool requireInstalled = true)
+    public static ProcessStartInfo Build(BaseEntry entry, bool designer, string client, IEnumerable<PlatformInfo> platforms, bool includeExtras = true, bool requireInstalled = true, string connectionMode = "Авто")
     {
         if (string.IsNullOrWhiteSpace(entry.Location)) throw new InvalidOperationException("Укажите подключение в свойствах базы.");
         if (entry.Version == "7.7") return Legacy77Service.Build(entry, designer, includeExtras, requireInstalled);
@@ -47,8 +47,12 @@ public static class LaunchService
         void Add(string key, string value) { info.ArgumentList.Add(key); info.ArgumentList.Add(value); }
         var connection = InfobaseConnection.For(entry);
         if (!login || user.Length > 0) { connection.Remove("Usr"); connection.Remove("Pwd"); }
-        if (InfobaseConnection.HasAdditional(connection)) Add("/IBConnectionString", InfobaseConnection.Format(connection));
-        else Add(entry.Kind switch { "File" => "/F", "Server" => "/S", "Web" => "/WS", _ => throw new InvalidOperationException("Неизвестный тип подключения.") }, entry.Kind == "Server" ? entry.Location.Replace('/', '\\') : entry.Location);
+        if (!LaunchBehavior.ConnectionModes.Contains(connectionMode)) throw new ArgumentException("Неизвестный способ подключения.");
+        if (connectionMode is "/IBName" or "/F /S /WS" && InfobaseConnection.HasAdditional(connection)) throw new ArgumentException("Для дополнительных параметров соединения выберите Авто или /IBConnectionString.");
+        if (connectionMode == "/IBName") Add("/IBName", entry.Name.Replace("\"", "\"\""));
+        else if (connectionMode == "/IBConnectionString" || InfobaseConnection.HasAdditional(connection)) Add("/IBConnectionString", InfobaseConnection.Format(connection));
+        else Add(entry.Kind switch { "File" => "/F", "Server" => "/S", "Web" => "/WS", _ => throw new InvalidOperationException("Неизвестный тип подключения.") }, entry.Kind == "Server" ? connection["Srvr"] + "\\" + connection["Ref"] : entry.Location);
+        if (!designer) WebLaunchOptions.Append(info, entry);
         if (login && user.Length > 0)
         {
             Add("/N", user);
@@ -110,6 +114,11 @@ public static class LaunchService
     public static string Preview(ProcessStartInfo info)
     {
         var args = info.ArgumentList.ToArray();
+        if (args.Length > 1 && args[0] == "CREATEINFOBASE")
+        {
+            try { var fields = InfobaseConnection.Parse(args[1]); foreach (string key in fields.Keys.ToArray()) if (key.Contains("Pwd", StringComparison.OrdinalIgnoreCase)) fields[key] = "••••••"; args[1] = InfobaseConnection.Format(fields); }
+            catch { args[1] = "•••••• (строка создания скрыта)"; }
+        }
         for (int i = 0; i < args.Length; i++)
         {
             if (Path.GetFileName(info.FileName).StartsWith("1cv7", StringComparison.OrdinalIgnoreCase) && args[i].StartsWith("/P", StringComparison.OrdinalIgnoreCase)) { args[i] = "/P••••••"; continue; }

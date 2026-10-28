@@ -125,7 +125,7 @@ internal sealed class V8iDocument
         }
         return d;
     }
-    public byte[] Render(Dictionary<string, V8iRecord> target)
+    public byte[] Render(Dictionary<string, V8iRecord> target, bool preserveImplicitOrdering = true)
     {
         foreach (var record in target.Values)
             if (string.IsNullOrWhiteSpace(record.Name) || record.Name.IndexOfAny(new[] { '\r', '\n', ']', '\0' }) >= 0 || record.Fields.Any(p => p.Key.IndexOfAny(new[] { '\r', '\n', '=', '\0' }) >= 0 || p.Value.IndexOfAny(new[] { '\r', '\n', '\0' }) >= 0))
@@ -135,7 +135,7 @@ internal sealed class V8iDocument
         {
             if (!target.TryGetValue(s.Record.Id, out var record)) continue;
             // Keep implicit ordering stable when preceding records are deleted.
-            if (!record.Fields.ContainsKey("OrderInTree")) record.Fields["OrderInTree"] = Sections.IndexOf(s).ToString();
+            if (preserveImplicitOrdering && !record.Fields.ContainsKey("OrderInTree")) record.Fields["OrderInTree"] = Sections.IndexOf(s).ToString();
             lines.Add("[" + record.Name + "]"); emitted.Add(record.Id);
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string raw in s.Lines)

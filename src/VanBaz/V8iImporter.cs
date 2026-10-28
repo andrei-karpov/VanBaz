@@ -45,21 +45,25 @@ public static class V8iImporter
         {
             if (name == null) return;
             if (string.IsNullOrWhiteSpace(name)) { skipped++; return; }
+            // Work on the import representation only. Reading a .v8i never changes its bytes.
+            Dictionary<string, string> importedFields;
+            try { importedFields = ImportPrivacy.Fields(fields); }
+            catch (InvalidDataException) { skipped++; return; }
             decimal order = decimal.TryParse(fields.GetValueOrDefault("OrderInTree"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : rows.Count + groups.Count;
             string folder = fields.GetValueOrDefault("Folder", "").Trim('/', '\\').Replace('\\', '/');
             if (!fields.TryGetValue("Connect", out var connection))
             {
                 if (!fields.ContainsKey("ID")) { skipped++; return; }
-                groups.Add(new() { Id = fields["ID"], Path = (folder.Length > 0 ? folder + "/" : "") + name, Order = order, V8iFields = new(fields) });
+                groups.Add(new() { Id = fields["ID"], Path = (folder.Length > 0 ? folder + "/" : "") + name, Order = order, V8iFields = importedFields });
                 return;
             }
             string kind, location;
-            try { (kind, location) = InfobaseConnection.Endpoint(InfobaseConnection.Parse(connection)); }
+            try { (kind, location) = InfobaseConnection.Endpoint(InfobaseConnection.Parse(importedFields["Connect"])); }
             catch (InvalidDataException) { skipped++; return; }
             rows.Add(new BaseEntry
             {
                 Id = fields.TryGetValue("ID", out var id) && !string.IsNullOrWhiteSpace(id) ? id : new Guid(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(name + "\n" + folder + "\n" + connection))[..16]).ToString(), Name = name, Kind = kind, Location = location,
-                Group = folder, Order = order, V8iFields = new(fields),
+                Group = folder, Order = order, V8iFields = importedFields,
                 Version = fields.GetValueOrDefault("Version", "8.3").TrimEnd('*', '.'),
                 WindowsAuthentication = fields.GetValueOrDefault("WA", "") switch { "0" => "Нет", "1" => "Да", _ => "Авто" },
                 Client = fields.GetValueOrDefault("App", "Auto") switch { "ThinClient" => "Тонкий клиент", "ThickClient" => "Толстый клиент", _ => "Авто" }

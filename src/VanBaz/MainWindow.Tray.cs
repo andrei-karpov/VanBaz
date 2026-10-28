@@ -25,6 +25,7 @@ public partial class MainWindow
     }
     private void ShowFromTray()
     {
+        trayPanel?.Close();
         CancelTrayAnimation();
         if (inTray)
         {

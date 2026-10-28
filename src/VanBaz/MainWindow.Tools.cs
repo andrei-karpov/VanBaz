@@ -53,16 +53,18 @@ public partial class MainWindow
             {
                 file = Path.GetFullPath(file);
                 if (!Path.GetFileName(file).Equals("1Cv8.1CD", StringComparison.OrdinalIgnoreCase) || !File.Exists(file)) throw new IOException("Выберите существующий файл 1Cv8.1CD.");
+                string action = args.Contains("--designer") ? "Конфигуратор" : args.Contains("--enterprise") ? "Предприятие" : args.Contains("--register") ? "Зарегистрировать" : "";
                 string folder = Path.GetDirectoryName(file)!;
                 var entry = catalog.Bases.FirstOrDefault(b => b.Kind == "File" && Path.GetFullPath(b.Location).TrimEnd('\\').Equals(folder, StringComparison.OrdinalIgnoreCase));
+                if (action.Length == 0) { var choice = new ExplorerActionWindow(file, CanEdit, entry != null) { Owner = this }; if (choice.ShowDialog() != true) return; action = choice.SelectedAction; }
                 if (entry != null) SelectBase(entry.Id);
                 else
                 {
-                    if (!AllowTools()) return;
+                    if (!CanEdit) { MessageBox.Show(this, "Эта база ещё не зарегистрирована. Для добавления записи выберите режим Специалист или Разработчик.", "Запуск файловой базы"); return; }
                     var added = new BaseEntry { Name = Path.GetFileName(folder), Location = folder, Version = catalog.Settings.DefaultVersion }; Edit(added);
                     entry = catalog.Bases.FirstOrDefault(b => b.Id == added.Id);
                 }
-                if (entry != null && (args.Contains("--enterprise") || args.Contains("--designer")) && SelectBaseInList(entry.Id)) Launch(args.Contains("--designer"));
+                if (entry != null && action != "Зарегистрировать" && SelectBaseInList(entry.Id)) Launch(action == "Конфигуратор");
             }
             catch (Exception ex) { Error("Регистрация базы", ex); }
         }
@@ -83,7 +85,7 @@ public partial class MainWindow
         if (id == 1) ShowFromTray();
         else if (id == 2)
         {
-            RefreshTrayMenu(); if (tray != null) { tray.Visible = true; tray.ContextMenuStrip?.Show(System.Windows.Forms.Cursor.Position); }
+            ShowTrayPanel();
         }
         else Screenshot_Click(this, new RoutedEventArgs());
     }

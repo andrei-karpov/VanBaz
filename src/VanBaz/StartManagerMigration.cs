@@ -46,6 +46,7 @@ public static class StartManagerMigration
                 if (S("AppVer").Length > 0) b.Version = S("AppVer").TrimEnd('*', '.');
                 b.Description = S("Description"); b.Notes = S("Note"); b.ConfigurationVersion = S("ConfigVersion");
                 b.ExternalProcessor = S("EpfFile"); b.RunAsAdmin = B("RunAsAdmin"); b.DisallowDelete = B("DisallowDelete");
+                b.CheckServerAgent = B("CheckRAgent");
                 b.EnterpriseLogin = B("UserLoginEnt"); b.DesignerLogin = B("UserLoginCnf");
                 b.UserName = S("EntUser"); b.DesignerUser = S("CfgUser");
                 if (B("OSAuthentication")) b.WindowsAuthentication = "Да";
@@ -76,6 +77,7 @@ public static class StartManagerMigration
         report.Notes.Add("Автозапуск и глобальные клавиши включаются вручную в ВанБаз. Палитры .vsf импортируются через раздел «Темы». Адрес прокси переносится без пароля; каталог конфигураций читается из v8updates.lst, если он присутствует.");
         if (imported.Skipped > 0) report.Notes.Add("Нераспознанных записей .v8i: " + imported.Skipped);
         result.Migration = report;
+        if (result.Settings.SourceSettings.TryGetValue("StartMode", out var importedMode) && !LaunchBehavior.ConnectionModes.Contains(importedMode)) report.Notes.Add("Исходный способ запуска сохранён как справочное значение; числовое соответствие ключам 1С не доказано. Выберите способ в настройках ВанБаз.");
         ConfigurationService.ImportExistingSources(result);
         return result;
     }
@@ -99,6 +101,9 @@ public static class StartManagerMigration
         p.AfterLaunchAction = S("ActionAfterRun") switch { "0" => "Свернуть в панель задач", "1" => "Свернуть в трей", "2" => "Закрыть ВанБаз", _ => "Ничего не делать" };
         p.DefaultDoubleClickAction = S("ActionOnDblClick") switch { "1" => "Предприятие с аутентификацией", "2" => "Предприятие с параметрами", "3" => "Конфигуратор", "5" => "Свойства", _ => "Предприятие" };
         p.DefaultVersion = S("V8DefVersion", "8.3"); p.DefaultFolder = S("V8DefaultFolder");
+        p.AutoSnapshot = B("V8iAutoBackup", p.AutoSnapshot); p.AutoSnapshotDays = (int)Math.Clamp(N("V8iAfterDays", p.AutoSnapshotDays), 1, 3650);
+        p.MonitorRepeatedLaunch = B("MonitorIBRestart", p.MonitorRepeatedLaunch); p.ShowLaunchBalloon = B("ShowBalloonOnLaunch", p.ShowLaunchBalloon); p.ShowLaunchButtonInRow = B("ShowRunButtonInRow", p.ShowLaunchButtonInRow);
+        if (LaunchBehavior.ConnectionModes.Contains(S("StartMode"))) p.ConnectionMode = S("StartMode");
         p.SelectionIntensity = (int)Math.Clamp(N("SelectionBlendFactor", 128), 0, 255); p.SelectedId = S("NodeID"); p.Left = N("Left", -1); p.Top = N("Top", -1);
         p.Width = Math.Clamp(N("Right", p.Left + 850) - p.Left, 735, 1600); p.Height = Math.Clamp(N("Bottom", p.Top + 700) - p.Top, 590, 1200);
         p.UseListColors = B("UseColorList", true); p.UseFavoriteColor = B("SetFontColorFovorite", true);

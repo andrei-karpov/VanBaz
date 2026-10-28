@@ -31,7 +31,7 @@ public partial class MainWindow
         var grid = new Grid(); root.Children.Add(grid);
         for (int i = 0; i < 3; i++) grid.ColumnDefinitions.Add(new());
         for (int i = 0; i < 2; i++) grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        var tiles = new[] { ("update", "Проверить\nобновления", "↻", "edit"), ("version", "Установить\nверсию", "▤", "edit"), ("restart", "Перезапустить\nВанБаз", "process", "idle"), ("lock", "Временная\nблокировка", "lock", "idle"), ("settings", "Настройки", "settings", "edit"), ("folder", "Каталог\nнастроек", "folder-open", "idle") };
+        var tiles = new[] { ("update", "Проверить\nобновления", "↻", "edit"), ("version", "Восстановить\nверсию", "▤", "edit"), ("restart", "Перезапустить\nВанБаз", "process", "idle"), ("lock", "Временная\nблокировка", "lock", "idle"), ("settings", "Настройки", "settings", "edit"), ("folder", "Каталог\nнастроек", "folder-open", "idle") };
         for (int i = 0; i < tiles.Length; i++)
         {
             var tile = tiles[i]; var content = new StackPanel(); content.Children.Add(UiIcons.Icon(tile.Item3)); content.Children.Add(new TextBlock { Text = tile.Item2, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 0) });
@@ -69,7 +69,7 @@ public partial class MainWindow
         switch (action)
         {
             case "update": OnlineUpdate_Click(sender, e); break;
-            case "version": UpdateApp_Click(sender, e); break;
+            case "version": VersionHistory_Click(sender, e); break;
             case "restart": Restart_Click(sender, e); break;
             case "lock": Lock_Click(sender, e); break;
             case "settings": Settings_Click(sender, e); break;

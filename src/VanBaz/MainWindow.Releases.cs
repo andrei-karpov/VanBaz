@@ -26,6 +26,7 @@ public partial class MainWindow
         var buttons = new WrapPanel(); DockPanel.SetDock(buttons, Dock.Bottom); root.Children.Add(buttons);
         var status = new TextBlock { Text = "Проверка выполняется по команде. Источники можно менять в свойствах конфигурации.", TextWrapping = TextWrapping.Wrap, Margin = new(0, 8, 0, 8) };
         DockPanel.SetDock(status, Dock.Bottom); root.Children.Add(status);
+        var properties = new TextBlock { Name = "ConfigurationSummary", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 8) }; DockPanel.SetDock(properties, Dock.Bottom); root.Children.Add(properties);
         var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(filters, Dock.Top); root.Children.Add(filters);
         var filter = new TextBox { Name = "ConfigurationFilter", Width = 250, ToolTip = "Поиск по названию, редакции и платформе" };
         var country = new ComboBox { Name = "CountryFilter", Width = 160, ToolTip = "Отбор по стране" };
@@ -102,7 +103,7 @@ public partial class MainWindow
             cancel.IsEnabled = busy; check.IsEnabled = !busy && (grid.SelectedItems.Count > 0 || grid.Items.Cast<ConfigurationSource>().Any(c => c.Watch));
         }
         updateStates = States;
-        grid.SelectionChanged += (_, _) => States();
+        grid.SelectionChanged += (_, _) => { properties.Text = grid.SelectedItem is ConfigurationSource selected ? selected.Name + " · " + selected.Country + " · редакция " + selected.Edition + " · платформа " + selected.Platform + "\n" + selected.InfoUrl + "\nПоследняя проверка: " + selected.Status : "Выберите конфигурацию, чтобы увидеть её свойства."; States(); };
         w.PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { e.Handled = true; w.Close(); } };
         Refresh(); States(); return w;
     }
@@ -113,18 +114,26 @@ public partial class MainWindow
         f.Section("Описание"); f.Text("name", "Наименование", c.Name); f.Text("country", "Страна", c.Country);
         f.Text("short", "Короткое имя", c.ShortName); f.Text("edition", "Редакция", c.Edition); f.Text("platform", "Платформа", c.Platform);
         var url = f.Text("url", "UpdInfo.txt", c.InfoUrl);
+        bool readingLink = false;
+        var checkLink = new Button { Content = "Проверить ссылку", HorizontalAlignment = HorizontalAlignment.Left }; f.Element(checkLink);
+        checkLink.Click += async (_, _) => { if (readingLink) return; try { ConfigurationService.Https(f.Value("url")); readingLink = true; checkLink.IsEnabled = false; if (isolatedSession) { f.SetError("В проверочном сеансе сеть отключена."); return; } var info = await ReleaseService.Fetch(f.Value("url"), catalog.Settings); f.SetError("Источник доступен. Релиз: " + info.Version); } catch (Exception ex) { f.SetError(ex.Message); } finally { readingLink = false; checkLink.IsEnabled = true; } };
+        f.Closing += (_, args) => { if (readingLink) { args.Cancel = true; f.SetError("Дождитесь проверки ссылки."); } };
         f.ActionButton("Составить адрес по полям", () => { url.Text = ConfigurationService.GeneratedUrl(new() { ShortName = f.Value("short"), Edition = f.Value("edition"), Platform = f.Value("platform") }); });
         f.Note("Адрес строится по схеме каталога поставщика. Проверьте его для своей редакции; успешная генерация адреса не означает, что он существует.");
         f.Check("watch", "Показывать в «Актуальных релизах»", c.Watch);
         f.Section("Дистрибутивы"); f.Text("download", "Корень загрузок HTTPS", c.DownloadRoot);
         f.Note("Адрес каталога обновлений из документации или метаданных конфигурации. Список файлов загружается из v8upd11.zip рядом с UpdInfo.txt. Доступ к закрытому серверу вводится только на время загрузки.");
         f.Validate = () => { if (f.Value("name").Length == 0) return f.SetError("Укажите название."); ConfigurationService.Https(f.Value("url")); if (f.Value("download").Length > 0) ConfigurationService.Https(f.Value("download")); return true; };
-        if (f.ShowDialog() != true) return;
-        c.Name = f.Value("name"); c.Country = f.Value("country"); c.ShortName = f.Value("short"); c.Edition = f.Value("edition"); c.Platform = f.Value("platform");
-        c.InfoUrl = f.Value("url"); c.DownloadRoot = f.Value("download"); c.Watch = f.Flag("watch");
-        Commit(() => { if (original == null) catalog.Configurations.Add(c); else catalog.Configurations[catalog.Configurations.IndexOf(original)] = c; });
+        f.ApplyChanges = () =>
+        {
+            if (readingLink) return f.SetError("Дождитесь проверки ссылки.");
+            var updated = c.Copy(); updated.Name = f.Value("name"); updated.Country = f.Value("country"); updated.ShortName = f.Value("short"); updated.Edition = f.Value("edition"); updated.Platform = f.Value("platform");
+            updated.InfoUrl = f.Value("url"); updated.DownloadRoot = f.Value("download"); updated.Watch = f.Flag("watch");
+            bool saved = Commit(() => { int index = catalog.Configurations.FindIndex(item => item.Id == updated.Id); if (index < 0) catalog.Configurations.Add(updated); else catalog.Configurations[index] = updated; }); if (saved) c = updated; return saved;
+        };
+        f.ShowDialog();
     }
-    private async void OpenDistributions(ConfigurationSource source, Window owner)
+    private async void OpenDistributions(ConfigurationSource source, Window owner, string? requestedVersion = null)
     {
         var w = new Window { Owner = owner, Title = "Дистрибутивы · " + source.Name, Width = 880, Height = 510, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var root = new DockPanel { Margin = new(12) }; w.Content = root;
@@ -134,6 +143,7 @@ public partial class MainWindow
         var cancel = new Button { Content = "Отменить загрузку", IsEnabled = false }; buttons.Children.Add(cancel);
         var close = new Button { Content = "Закрыть" }; buttons.Children.Add(close); close.Click += (_, _) => w.Close();
         CancellationTokenSource? cancellation = null;
+        list.SelectionChanged += (_, _) => download.IsEnabled = cancellation == null && list.SelectedItem is Distribution;
         cancel.Click += (_, _) => cancellation?.Cancel();
         w.Closing += (_, args) => { if (cancellation != null) { cancellation.Cancel(); args.Cancel = true; status.Text = "Отмена загрузки…"; } };
         download.Click += async (_, _) =>
@@ -157,10 +167,10 @@ public partial class MainWindow
             }
             catch (OperationCanceledException) { status.Text = "Загрузка отменена; неполный файл удалён."; }
             catch (Exception ex) { status.Text = ex.Message; }
-            finally { cancellation?.Dispose(); cancellation = null; download.IsEnabled = true; cancel.IsEnabled = false; }
+            finally { cancellation?.Dispose(); cancellation = null; download.IsEnabled = list.SelectedItem is Distribution; cancel.IsEnabled = false; }
         };
         w.Show();
-        try { list.ItemsSource = await ConfigurationService.Distributions(source, catalog.Settings); download.IsEnabled = true; status.Text = "Выберите релиз. Учитывайте допустимые исходные версии; цепочка обновлений автоматически не устанавливается."; }
+        try { list.ItemsSource = (await ConfigurationService.Distributions(source, catalog.Settings)).Where(d => requestedVersion == null || d.Version == requestedVersion).ToArray(); download.IsEnabled = list.SelectedItem is Distribution; status.Text = list.Items.Count == 0 && requestedVersion != null ? "Для релиза " + requestedVersion + " дистрибутив не найден." : "Выберите релиз. Учитывайте допустимые исходные версии; цепочка обновлений автоматически не устанавливается."; }
         catch (Exception ex) { status.Text = ex.Message; }
     }
     private async void DetectConfiguration_Click(object sender, RoutedEventArgs e)

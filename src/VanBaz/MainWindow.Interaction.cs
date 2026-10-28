@@ -231,15 +231,9 @@ public partial class MainWindow
     private void AddBase(string? kind = null)
     {
         if (!CanEdit || !IsBaseView) return;
-        var f = new FormDialog("Регистрация информационной базы", 680, 420) { Owner = this };
-        f.Section("Тип и платформа");
-        f.Choice("kind", "Расположение", kind == "Server" ? "Сервер 1С" : kind == "Web" ? "Веб-публикация" : "Файловая база", new[] { "Файловая база", "Сервер 1С", "Веб-публикация" });
-        f.Choice("version", "Версия", LegacyTab.IsChecked == true ? "7.7" : catalog.Settings.DefaultVersion, new[] { "8.5", "8.4", "8.3", "8.2", "8.1", "7.7" }.Where(v => catalog.Settings.EnableLegacy77 || v != "7.7"), true);
-        f.Note("Будет добавлено подключение к существующей базе. Файлы новой базы здесь не создаются.");
-        f.SetAcceptText("Далее →");
-        f.Validate = () => f.Value("version").Length > 0 && (f.Value("version").TrimEnd('*', '.') != "7.7" || catalog.Settings.EnableLegacy77 && f.Value("kind") == "Файловая база") || f.SetError("Для 7.7 включите её поддержку в настройках и выберите файловую базу; версия обязательна.");
+        var f = new NewBaseSelectionWindow(kind ?? "File", LegacyTab.IsChecked == true ? "7.7" : catalog.Settings.DefaultVersion, catalog.Settings.EnableLegacy77) { Owner = this };
         if (f.ShowDialog() != true) return;
-        Edit(new BaseEntry { DoubleClickAction = catalog.Settings.DefaultDoubleClickAction, Group = SelectedGroupPath, Version = f.Value("version"), Kind = f.Value("kind") == "Сервер 1С" ? "Server" : f.Value("kind") == "Веб-публикация" ? "Web" : "File", Location = f.Value("kind") == "Файловая база" ? catalog.Settings.DefaultFolder : "" });
+        Edit(new BaseEntry { DoubleClickAction = catalog.Settings.DefaultDoubleClickAction, Group = SelectedGroupPath, Version = f.SelectedVersion, Kind = f.SelectedKind, Location = f.SelectedKind == "File" ? catalog.Settings.DefaultFolder : "" });
     }
     private void LaunchMenu_Click(object sender, RoutedEventArgs e)
     {
@@ -389,29 +383,7 @@ public partial class MainWindow
         else StatusText.Text = "В этом разделе пока нет избранных баз.";
     }
     private void RelocatePaths_Click(object sender, RoutedEventArgs e)
-    {
-        if (!CanEdit) return;
-        var f = new FormDialog("Замена пути файловых баз", 780, 460) { Owner = this }; f.Section("Пути");
-        f.Text("old", "Старый диск / каталог", ""); f.Text("new", "Новый диск / каталог", "");
-        f.Note("Адреса файловых подключений сохраняются в пользовательском списке 1С. Файлы и папки не перемещаются. Подключения из корпоративных списков меняются в их источнике.");
-        f.SetAcceptText("Предпросмотр"); f.Validate = () => CatalogRelocation.Preview(catalog, f.Value("old"), f.Value("new")).Count > 0 || f.SetError("Подходящих файловых баз нет.");
-        if (f.ShowDialog() != true) return;
-        var changes = CatalogRelocation.Preview(catalog, f.Value("old"), f.Value("new"));
-        var review = new FormDialog("Подтвердить замену путей", 850, 590) { Owner = this }; review.Section("Изменения");
-        var text = review.Text("preview", "Подключения: " + changes.Count, string.Join("\n\n", changes.Select(c => c.Name + "\n" + c.Before + "\n→ " + c.After)), true);
-        text.IsReadOnly = true; text.Height = 280; text.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-        review.Check("confirmed", "Подтверждаю изменение перечисленных подключений", false);
-        review.Note("Перед сохранением будет создан снимок каталога. Доступность новых каталогов не проверяется автоматически.");
-        review.Validate = () => review.Flag("confirmed") || review.SetError("Подтвердите список изменений."); review.SetAcceptText("Заменить пути");
-        if (review.ShowDialog() != true) return;
-        try
-        {
-            store.Save(catalog); store.Snapshot();
-            if (Commit(() => { foreach (var change in changes) catalog.Bases.First(b => b.Id == change.Id).Location = change.After; }))
-            { _ = RefreshMetadata(); StatusText.Text = "Обновлено подключений: " + changes.Count; }
-        }
-        catch (Exception ex) { Error("Замена путей", ex); }
-    }
+        => ShowRelocation();
     private void Help_Click(object sender, RoutedEventArgs e) => FormDialog.ShowText(this, "Клавиши и действия", "F3 / F4 — Предприятие / Конфигуратор\nCtrl+F3 / Ctrl+F4 — параметры на один запуск\nShift+F3 / Shift+F4 — запросить вход в 1С\nF5 — обновить сведения\nF6 — настройки\nF8 — избранное\nF9 / Alt+F9 — релиз базы / актуальные релизы\nF11 / F12 — свернуть / развернуть группы\nCtrl+F — поиск, Escape — очистить поиск\nInsert / Ctrl+Insert — база / группа\nAlt+Enter — свойства выбранного элемента\nCtrl+L — снимки каталога\nCtrl+B — закладки\nF1 / Alt+F1 — справка\nAlt+F11 — системное меню\nCtrl+M / Alt+M — следующий монитор\n\nЩелчок по группе выделяет её. Стрелка слева и двойной щелчок сворачивают группу. Правое меню относится к строке под указателем. На вкладке истории Enter находит базу; Delete не удаляет её.");
 }
 

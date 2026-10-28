@@ -58,7 +58,7 @@ public static class DesktopIntegration
     public static string ExplorerCommand(string executable, string data, string mode)
     {
         if (mode is not ("" or "--enterprise" or "--designer")) throw new ArgumentException("Неизвестный режим Проводника.");
-        return Quote(executable) + " " + Arguments(data, mode.Length == 0 ? new[] { "--open-file", "%1" } : new[] { "--open-file", "%1", mode });
+        return Quote(executable) + " " + Arguments(data, mode.Length == 0 ? new[] { "--open-file", "%1", "--register" } : new[] { "--open-file", "%1", mode });
     }
     public static void Shortcut(string destination, string data, string id, bool designer)
     {

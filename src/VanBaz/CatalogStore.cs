@@ -29,7 +29,8 @@ public sealed class CatalogStore
         data.OfficialLists ??= new();
         data.ListSync ??= new(); data.LaunchProfiles ??= new(); data.Settings.PlatformRoots ??= new(); data.Settings.BaseKeys ??= new(); data.Settings.WebBrowser ??= "Edge";
         data.Settings.DisabledPlatformRoots ??= new();
-        foreach (var entry in data.Bases) { entry.Advanced ??= new(); entry.ListSources ??= new(); entry.V8iFields = new(entry.V8iFields ?? new(), StringComparer.OrdinalIgnoreCase); }
+        data.Settings.TemplateRoots ??= new(); data.Settings.ConnectionMode ??= "Авто";
+        foreach (var entry in data.Bases) { entry.Advanced ??= new(); entry.WebOptions ??= new(); entry.ListSources ??= new(); entry.V8iFields = new(entry.V8iFields ?? new(), StringComparer.OrdinalIgnoreCase); }
         foreach (var group in data.Groups) group.ListSources ??= new();
         if (data.ListSync.Any(s => s == null || s.Source == null || s.Agreed == null) || data.LaunchProfiles.Any(p => p == null || p.SchemaVersion != 1 || p.Advanced == null)) throw new InvalidDataException("Повреждены профили запуска или состояние согласования.");
         foreach (var state in data.ListSync) state.Agreed = new(state.Agreed, StringComparer.OrdinalIgnoreCase);

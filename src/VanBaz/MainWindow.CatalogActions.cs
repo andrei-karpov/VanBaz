@@ -10,24 +10,16 @@ public partial class MainWindow
     private void MoveToGroup_Click(object sender, RoutedEventArgs e)
     {
         if (!CanEdit || Selected is not { } entry) return;
-        var dialog = new FormDialog("Переместить в группу", 550, 300) { Owner = this };
-        dialog.Section("Группа"); dialog.Note(entry.Name);
-        dialog.Choice("group", "Группа", entry.Group, new[] { "" }.Concat(catalog.Groups.Select(g => g.Path)).Concat(catalog.Bases.Select(b => b.Group)).Distinct().Order(), true);
-        dialog.Note("Пустое значение — корень списка. Вложенные группы разделяются знаком /."); dialog.SetAcceptText("Переместить");
-        dialog.Validate = () => { string path = dialog.Value("group").Trim('/', '\\').Replace('\\', '/'); return path.Length == 0 || ValidGroup(path); };
-        if (dialog.ShowDialog() == true && Commit(() => entry.Group = dialog.Value("group").Trim('/', '\\').Replace('\\', '/'))) SelectBase(entry.Id);
+        var dialog = new GroupSelectionWindow(catalog.Groups.Select(g => g.Path).Concat(catalog.Bases.Select(b => b.Group)), entry.Group, "Переместить в группу: " + entry.Name) { Owner = this };
+        dialog.SelectButton.Content = "Переместить";
+        if (dialog.ShowDialog() == true && Commit(() => entry.Group = dialog.SelectedGroup)) SelectBase(entry.Id);
     }
     private void AssignVersion_Click(object sender, RoutedEventArgs e)
     {
         if (!Enabled("v8") || Selected is not { } entry) return;
         if (officialLists?.IsCommon(entry.Id) == true) { StatusText.Text = "Версию общей регистрации изменяют в её исходном списке."; return; }
-        var dialog = new FormDialog("Назначить версию платформы", 550, 330) { Owner = this };
-        dialog.Section("Платформа"); dialog.Note(entry.Name);
-        dialog.Choice("version", "Версия", entry.Version, new[] { "8.1", "8.2", "8.3", "8.4", "8.5" }.Concat(platforms.Select(p => p.Version)).Distinct(), true);
-        dialog.Choice("arch", "Разрядность", entry.Architecture, new[] { "Авто", "x86", "x64" });
-        dialog.Note("Платформа будет выбрана заново. Закреплённый путь EXE будет снят.");
-        dialog.Validate = () => Regex.IsMatch(dialog.Value("version"), @"^8\.\d+(?:\.\d+){0,2}$") || dialog.SetError("Укажите версию 8.x.");
-        if (dialog.ShowDialog() == true) Commit(() => { entry.Version = dialog.Value("version"); entry.Architecture = dialog.Value("arch"); entry.Executable = ""; });
+        var dialog = new PlatformVersionWindow(platforms, entry.Version, entry.Architecture, entry.Name) { Owner = this };
+        if (dialog.ShowDialog() == true) Commit(() => { entry.Version = dialog.SelectedVersion; entry.Architecture = dialog.SelectedArchitecture; entry.Executable = ""; });
     }
     public static string FormatName(string value, string mode, bool trim, string from, string to)
     {
@@ -39,14 +31,23 @@ public partial class MainWindow
     private void FormatNames_Click(object sender, RoutedEventArgs e)
     {
         if (!CanEdit) return;
-        var dialog = new FormDialog("Форматирование наименований", 680, 450) { Owner = this };
-        dialog.Section("Правила"); dialog.Choice("mode", "Регистр", "Не форматировать", new[] { "Не форматировать", "Все буквы ЗАГЛАВНЫЕ", "Все буквы строчные", "Первая буква Заглавная", "Первая буква каждого слова Заглавная" });
+        var dialog = new FormDialog("Форматирование наименований", 730, 540) { Owner = this };
+        dialog.Section("Правила");
+        var source = dialog.Choice("source", "Список баз", "Текущий каталог", new[] { "Текущий каталог", "Отдельный файл .v8i" });
+        dialog.BrowseText("file", "Файл списка", "", false, "Список баз 1С|*.v8i"); dialog.SetEnabled("file", false);
+        source.SelectionChanged += (_, _) => dialog.SetEnabled("file", dialog.Value("source") == "Отдельный файл .v8i");
+        dialog.Choice("mode", "Регистр", "Не форматировать", new[] { "Не форматировать", "Все буквы ЗАГЛАВНЫЕ", "Все буквы строчные", "Первая буква Заглавная", "Первая буква каждого слова Заглавная" });
         dialog.Check("trim", "Убрать концевые пробелы", true); dialog.Check("bases", "Информационные базы", true); dialog.Check("groups", "Группы", false);
         dialog.Text("from", "Заменить строку", ""); dialog.Text("to", "На строку", ""); dialog.SetAcceptText("Предпросмотр");
         if (dialog.ShowDialog() != true) return;
         try
         {
             string Convert(string value) => FormatName(value, dialog.Value("mode"), dialog.Flag("trim"), dialog.Value("from"), dialog.Value("to"));
+            if (dialog.Value("source") == "Отдельный файл .v8i")
+            {
+                var plan = ExternalListRelocation.PrepareNames(dialog.Value("file"), Convert, dialog.Flag("bases"), dialog.Flag("groups"));
+                ConfirmExternalFormatting(plan); return;
+            }
             var commonGroups = catalog.Groups.Where(g => officialLists?.IsCommon(g.Id) == true).Select(g => g.Path).ToArray();
             string Group(string path) => commonGroups.Any(p => InGroup(path, p) || InGroup(p, path)) ? path : string.Join('/', path.Split('/').Select(Convert));
             var names = catalog.Bases.Where(b => dialog.Flag("bases") && officialLists?.IsCommon(b.Id) != true && b.Name != Convert(b.Name)).ToDictionary(b => b.Id, b => Convert(b.Name));

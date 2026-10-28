@@ -20,7 +20,7 @@ public static class ServerConsole
         registeredDll ??= RegisteredDll;
         var classes = XDocument.Load(msc).Descendants("Snapin").Select(n => (string?)n.Attribute("CLSID")).Where(s => Guid.TryParse(s, out _));
         bool matching = classes.Any(id => string.Equals(registeredDll(id!, platform.Architecture)?.Trim().Trim('"'), dll, StringComparison.OrdinalIgnoreCase));
-        if (!matching) throw new InvalidOperationException("Оснастка выбранной версии не зарегистрирована в Windows. Установите её средствами поставщика 1С. ВанБаз не меняет регистрацию COM и службы.");
+        if (!matching) throw new InvalidOperationException("Оснастка выбранной версии не зарегистрирована. Используйте вкладку «Компоненты и службы» или установщик 1С.");
         string system = platform.Architecture == "x86" && os64 ? "SysWOW64" : platform.Architecture == "x64" && !process64 ? "Sysnative" : "System32";
         string mmc = Path.Combine(windowsFolder, system, "mmc.exe");
         if (!File.Exists(mmc)) throw new FileNotFoundException("Не найден Microsoft Management Console.", mmc);
@@ -40,12 +40,13 @@ public partial class MainWindow
     {
         planner ??= p => ServerConsole.CreatePlan(p, Environment.GetFolderPath(Environment.SpecialFolder.Windows), Environment.Is64BitOperatingSystem, Environment.Is64BitProcess);
         launch ??= info => { if (!isolatedSession) Process.Start(info); };
-        var window = new Window { Title = "Консоль администрирования серверов 1С", Width = 540, Height = 330, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner }; DialogBehavior.FitToScreen(window);
-        var root = new StackPanel { Margin = new Thickness(14) }; window.Content = root;
+        var window = new Window { Title = "Консоль администрирования серверов 1С", Width = 890, Height = 640, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner }; DialogBehavior.FitToScreen(window);
+        var tabs = new TabControl(); window.Content = tabs;
+        var root = new StackPanel { Margin = new Thickness(14) }; tabs.Items.Add(new TabItem { Header = "Консоль", Content = root });
         root.Children.Add(new TextBlock { Text = "Установленная платформа", Margin = new Thickness(0, 0, 0, 7) });
         var version = new ComboBox { Name = "ServerConsolePlatform", ItemsSource = platforms, DisplayMemberPath = "Display", SelectedIndex = platforms.Count > 0 ? 0 : -1 }; root.Children.Add(version);
         var status = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 8) }; root.Children.Add(status);
-        root.Children.Add(new TextBlock { Text = "Откроется штатная MMC-консоль. Регистрация компонентов и изменение служб здесь не выполняются.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) });
+        root.Children.Add(new TextBlock { Text = "Откроется штатная MMC-консоль. Для регистрации компонентов и управления службами используйте следующую вкладку: команды показываются перед выполнением и запрашивают права администратора.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) });
         var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right }; root.Children.Add(buttons);
         var open = new Button { Name = "OpenServerConsole", Content = "Открыть консоль", IsDefault = true }; buttons.Children.Add(open);
         var close = new Button { Content = "Закрыть", IsCancel = true }; close.Click += (_, _) => window.Close(); buttons.Children.Add(close);
@@ -58,6 +59,7 @@ public partial class MainWindow
         }
         version.SelectionChanged += (_, _) => Refresh(); Refresh();
         open.Click += (_, _) => { if (!CanEdit || version.SelectedItem is not PlatformInfo p) return; try { launch(planner(p)); window.Close(); } catch (Exception ex) { status.Text = ex.Message; open.IsEnabled = false; } };
+        tabs.Items.Add(new TabItem { Header = "Компоненты и службы", Content = CreateServerAdministrationPanel(window, () => Refresh()) });
         return window;
     }
     private void ServerConsole_Click(object sender, RoutedEventArgs e) { if (AllowTools()) CreateServerConsoleWindow().ShowDialog(); }

@@ -12,7 +12,7 @@ public partial class MainWindow
         if (locked) return null;
         if (Selected is { } b)
         {
-            var fields = new List<InfoField> { new("Наименование", b.Name), new("Идентификатор", b.Id), new("Размещение", b.Location, b.Kind == "File"), new("Подключение", b.ConnectionDisplay), new("Платформа", b.Version), new("Группа", b.Group.Length == 0 ? "Корень списка" : b.Group) };
+            var fields = new List<InfoField> { new("Наименование", b.Name), new("Идентификатор", b.Id, CopyOnClick: true), new("Размещение", b.Location, b.Kind == "File"), new("Подключение", b.ConnectionDisplay), new("Платформа", b.Version), new("Группа", b.Group.Length == 0 ? "Корень списка" : b.Group) };
             foreach (string path in b.ListSources) fields.Add(new("Список баз", path, true));
             fields.Add(new("Тип списка баз", officialLists?.IsCommon(b.Id) == true ? "Общий (подключение только для чтения)" : b.ListSources.Count == 0 ? "Локальный каталог ВанБаз" : "Личный / импортированный"));
             if (b.ConfigurationName.Length > 0) fields.Add(new("Конфигурация", b.ConfigurationName));
@@ -24,7 +24,7 @@ public partial class MainWindow
         if (IsRealGroup)
         {
             string path = SelectedGroupPath; var g = catalog.Groups.FirstOrDefault(g => g.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
-            var fields = new List<InfoField> { new("Наименование", path.Split('/').Last()), new("Идентификатор", g?.Id ?? "Группа задана путями баз"), new("Группа", path), new("Баз в группе", catalog.Bases.Count(b => InGroup(b.Group, path)).ToString()) };
+            var fields = new List<InfoField> { new("Наименование", path.Split('/').Last()), new("Идентификатор", g?.Id ?? "Группа задана путями баз", CopyOnClick: g != null), new("Группа", path), new("Баз в группе", catalog.Bases.Count(b => InGroup(b.Group, path)).ToString()) };
             foreach (string source in g?.ListSources ?? new()) fields.Add(new("Список баз", source, true));
             fields.Add(new("Тип списка баз", g != null && officialLists?.IsCommon(g.Id) == true ? "Общий" : "Личный / локальный"));
             return new BaseInfoWindow("Сведения по группе информационных баз", fields) { Owner = this };

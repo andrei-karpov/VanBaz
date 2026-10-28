@@ -27,6 +27,8 @@ public class BaseEntry
     public AdvancedLaunch Advanced { get; set; } = new();
     public string ExternalProcessor { get; set; } = "";
     public bool RunAsAdmin { get; set; }
+    public bool CheckServerAgent { get; set; }
+    public WebLaunchOptions WebOptions { get; set; } = new();
     public bool DisallowDelete { get; set; }
     public bool EnterpriseLogin { get; set; } = true;
     public bool DesignerLogin { get; set; } = true;
@@ -43,6 +45,8 @@ public class BaseEntry
     public bool RepositoryPasswordMissing { get; set; }
     public string DoubleClickAction { get; set; } = "Предприятие";
     public string UpdateInfoUrl { get; set; } = "";
+    public bool UseLocalUpdateInfo { get; set; }
+    public string LocalUpdateInfoFile { get; set; } = "";
     public string LatestRelease { get; set; } = "";
     public DateTime? ReleaseChecked { get; set; }
     public Dictionary<string, string> V8iFields { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -55,7 +59,7 @@ public class BaseEntry
     };
     private string ServerConnection()
     {
-        int slash = Location.IndexOf('/');
+        int slash = Location.LastIndexOf('/');
         return slash > 0 ? "Srvr=\"" + Location[..slash].Replace("\"", "\"\"") + "\";Ref=\"" + Location[(slash + 1)..].Replace("\"", "\"\"") + "\";" : Location;
     }
     public BaseEntry Copy() => JsonSerializer.Deserialize<BaseEntry>(JsonSerializer.Serialize(this))!;
@@ -67,6 +71,8 @@ public class LaunchRecord
     public string Name { get; set; } = "";
     public string Mode { get; set; } = "";
     public DateTime Time { get; set; }
+    public int ProcessId { get; set; }
+    public DateTime? ProcessStarted { get; set; }
 }
 
 public class Catalog
@@ -127,6 +133,8 @@ public class Preferences
     public Dictionary<string, string> BaseKeys { get; set; } = new();
     public string AppUpdateUrl { get; set; } = "";
     public bool CheckAppUpdates { get; set; }
+    public bool AutoDownloadAppUpdates { get; set; }
+    public DateTime? AppUpdateRemindAfterUtc { get; set; }
     public Dictionary<string, double> ColumnWidths { get; set; } = new();
     public string SortColumn { get; set; } = "";
     public bool SortDescending { get; set; }
@@ -170,6 +178,7 @@ public class Preferences
     public string DefaultDoubleClickAction { get; set; } = "Предприятие";
     public string DefaultVersion { get; set; } = "8.3";
     public string DefaultFolder { get; set; } = "";
+    public List<string> TemplateRoots { get; set; } = new();
     public string SelectedId { get; set; } = "";
     public string Theme { get; set; } = "Светло-серый";
     public int SelectionIntensity { get; set; } = 128;
@@ -179,6 +188,11 @@ public class Preferences
     public string ProxyUrl { get; set; } = "";
     public bool ProxyWindowsCredentials { get; set; }
     public bool AutoSnapshot { get; set; } = true;
+    public int AutoSnapshotDays { get; set; } = 3;
+    public DateTime? LastAutoSnapshot { get; set; }
+    public bool MonitorRepeatedLaunch { get; set; }
+    public bool ShowLaunchBalloon { get; set; }
+    public string ConnectionMode { get; set; } = "Авто";
     public bool HotkeysEnabled { get; set; }
     public string ShowHotkey { get; set; } = "Ctrl+Alt+S";
     public string TrayHotkey { get; set; } = "Ctrl+Alt+Z";

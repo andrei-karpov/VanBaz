@@ -40,26 +40,43 @@ public partial class MainWindow
     private void DeleteBaseFile(BaseEntry entry)
     {
         if (operations.Count > 0) { MessageBox.Show("Дождитесь завершения операций."); return; }
-        var f = new FormDialog("Удаление базы · " + entry.Name, 780, 460) { Owner = this }; f.Section("Удаление");
-        f.Note("Запись будет удалена из списка ВанБаз.");
-        f.Check("file", "Также убрать файл 1Cv8.1CD из каталога базы", false);
-        f.Note("Файл перемещается в .VanBaz-Deleted рядом с папкой базы. Его можно вернуть через «Восстановить удалённый файл базы». Место на диске освобождается только после удаления этой копии вручную. Остальные файлы каталога сохраняются.");
-        f.Text("confirm", "Для удаления файла введите имя базы", "");
-        f.Validate = () => !f.Flag("file") || f.Value("confirm") == entry.Name || f.SetError("Введите точное имя базы.");
-        f.SetAcceptText("Удалить"); if (f.ShowDialog() != true) return;
-        if (!f.Flag("file")) { Commit(() => catalog.Bases.Remove(entry)); return; }
+        var f = CreateDeletionDialog(entry); if (f.ShowDialog() != true) return;
+        bool file = f.Flag("file"), cache = f.Flag("cache");
+        if (!file && !cache) { Commit(() => catalog.Bases.Remove(entry)); return; }
         if (isolatedSession) return;
         try
         {
-            string full = Path.GetFullPath(entry.Location).TrimEnd('\\');
-            if (catalog.Bases.Any(b => b.Id != entry.Id && b.Kind == "File" && Path.GetFullPath(b.Location).TrimEnd('\\').Equals(full, StringComparison.OrdinalIgnoreCase)))
-                throw new IOException("На этот файл ссылается другая запись каталога. Сначала устраните дубликаты подключений.");
+            if (cache && CacheService.ClientsRunning()) throw new IOException("Закройте процессы 1С перед очисткой кэша. Запись не удалена.");
+            var cacheErrors = new List<string>();
+            var folders = cache && Guid.TryParse(entry.Id, out var entryId) ? CacheService.Find(CacheService.ProfileRoots(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)), catalog.Bases, false, cacheErrors).Where(item => Guid.TryParse(item.BaseId, out var id) && id == entryId).ToArray() : Array.Empty<CacheFolder>();
+            if (file)
+            {
+                string full = Path.GetFullPath(entry.Location).TrimEnd('\\');
+                if (catalog.Bases.Any(b => b.Id != entry.Id && b.Kind == "File" && Path.GetFullPath(b.Location).TrimEnd('\\').Equals(full, StringComparison.OrdinalIgnoreCase))) throw new IOException("На файл ссылается другая запись. Сначала устраните дубликаты подключений.");
+            }
             store.Save(catalog); store.Snapshot();
-            var record = DeletedBaseService.Quarantine(entry, Path.Combine(store.Folder, "DeletedBases"));
-            if (!Commit(() => catalog.Bases.Remove(entry))) { DeletedBaseService.Restore(record); throw new IOException("Каталог не сохранён. Файл возвращён на место."); }
-            StatusText.Text = "Файл перемещён: " + record.StoredFile;
+            var record = file ? DeletedBaseService.Quarantine(entry, Path.Combine(store.Folder, "DeletedBases")) : null;
+            if (!Commit(() => catalog.Bases.Remove(entry))) { if (record != null) DeletedBaseService.Restore(record); throw new IOException("Каталог не сохранён. Удаление отменено, файл возвращён на место."); }
+            var results = new List<string> { "Запись удалена из списка." }; if (record != null) results.Add("Файл в карантине: " + record.StoredFile);
+            foreach (var folder in folders) try { if (CacheService.ClientsRunning()) throw new IOException("Появился процесс 1С."); CacheService.Move(folder, false); results.Add("Кэш в карантине: " + folder.Path); } catch (Exception ex) { results.Add("Кэш не изменён: " + folder.Path + " · " + ex.Message); }
+            if (cache && folders.Length == 0 && cacheErrors.Count == 0) results.Add("Кэш этой базы в профиле текущего пользователя не найден.");
+            results.AddRange(cacheErrors.Select(error => "Кэш не проверен: " + error));
+            StatusText.Text = string.Join(" ", results); FormDialog.ShowText(this, "Результат удаления", string.Join("\n", results));
         }
-        catch (Exception ex) { Error("Удаление файла базы", ex); }
+        catch (Exception ex) { Error("Удаление базы", ex); }
+    }
+    private FormDialog CreateDeletionDialog(BaseEntry entry)
+    {
+        var f = new FormDialog("Удаление базы · " + entry.Name, 780, 460) { Owner = this }; f.Section("Удаление");
+        f.Note("Запись будет удалена из списка ВанБаз.");
+        f.Check("file", "Также убрать файл 1Cv8.1CD из каталога базы", false);
+        f.SetEnabled("file", InterfaceMode == "Разработчик" && entry.Kind == "File" && entry.Version != "7.7");
+        f.Check("cache", "Также убрать кэш базы в Local / Roaming текущего пользователя", false); f.SetEnabled("cache", entry.Version != "7.7");
+        f.Note("Файл перемещается в .VanBaz-Deleted рядом с папкой базы. Его можно вернуть через «Восстановить удалённый файл базы». Место на диске освобождается только после удаления этой копии вручную. Остальные файлы каталога сохраняются.");
+        f.Text("confirm", "Для удаления файла введите имя базы", "");
+        f.Validate = () => !f.Flag("file") || f.Value("confirm") == entry.Name || f.SetError("Введите точное имя базы.");
+        f.Note("Кэш перемещается в карантин; возврат доступен в окне очистки кэша. Другие Windows-профили здесь не обрабатываются. При частичной ошибке будет показан результат каждого шага.");
+        f.SetAcceptText("Удалить"); return f;
     }
     private void RestoreDeletedBase_Click(object sender, RoutedEventArgs e)
     {

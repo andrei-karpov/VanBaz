@@ -15,11 +15,12 @@ public static class CacheService
             foreach (var version in new[] { "1cv8", "1cv82" })
                 yield return Path.Combine(Environment.GetFolderPath(special), "1C", version);
     }
-    public static string[] ProfileRoots(string folder)
+    public static string[] ProfileRoots(string folder, bool local = true, bool roaming = true, string version = "Все")
     {
         string root = Path.GetFullPath(folder); EnsureOrdinaryPath(root);
         if (!Directory.Exists(Path.Combine(root, "AppData"))) throw new IOException("Выберите профиль Windows, содержащий папку AppData.");
-        return new[] { "Local", "Roaming" }.SelectMany(part => new[] { "1cv8", "1cv82" }.Select(version => Path.Combine(root, "AppData", part, "1C", version))).ToArray();
+        var versions = new[] { "1cv8", "1cv81", "1cv82" }; if (version != "Все" && !versions.Contains(version)) throw new ArgumentException("Неизвестный каталог версии кэша.");
+        return new[] { local ? "Local" : "", roaming ? "Roaming" : "" }.Where(p => p.Length > 0).SelectMany(part => versions.Where(v => version == "Все" || v == version).Select(v => Path.Combine(root, "AppData", part, "1C", v))).ToArray();
     }
     public static List<CacheFolder> Find(IEnumerable<string> roots, IEnumerable<BaseEntry> bases, bool quarantined = false, List<string>? errors = null)
     {
@@ -57,6 +58,7 @@ public static class CacheService
     }
     public static void Move(CacheFolder folder, bool restore)
     {
+        if (restore && CacheCleanup.IsSelective(folder)) { CacheCleanup.RestoreSelective(folder); return; }
         string root = Path.GetFullPath(folder.Root);
         string quarantine = Path.Combine(root, "VanBaz.Quarantine");
         string name = Path.GetFileName(folder.Path);

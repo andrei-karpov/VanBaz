@@ -154,6 +154,12 @@ public class FormDialog : Window
         navigation.SelectedIndex = index;
         if (navigation.SelectedItem is string section && treeSections.TryGetValue(section, out var item)) { item.IsSelected = true; item.BringIntoView(); }
     }
+    public void SetSectionVisible(string section, bool visible)
+    {
+        var item = navigation.ItemContainerGenerator.ContainerFromItem(section) as ListBoxItem;
+        if (item != null) item.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (!visible && navigation.SelectedItem as string == section) SelectSection(0);
+    }
     public void UseTreeNavigation(params (string Caption, string Section, string? Parent)[] sections)
     {
         if (sectionTree != null) throw new InvalidOperationException("Дерево разделов уже создано.");

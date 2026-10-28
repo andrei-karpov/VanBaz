@@ -32,7 +32,7 @@ public partial class MainWindow
     private FormDialog CreateThemesDialog(Window owner)
     {
         var preview = catalog.Copy().Settings;
-        var form = new FormDialog("Темы и избранные стили", 790, 650) { Owner = owner };
+        var form = new FormDialog("Темы и избранные стили", 820, 710) { Owner = owner };
         var favorites = new List<ComboBox>();
         form.Section("Оформление");
         form.Note("Выбор сразу виден в окнах. «Сохранить» запомнит изменения, «Отмена» вернёт прежнюю тему.");
@@ -92,7 +92,19 @@ public partial class MainWindow
         form.Note(".vsf: переносятся цвета VCL_STYLE 2.0. Кнопки и прочие элементы рисует ВанБаз; изображения и рамка окна Windows из оригинала не копируются.");
         form.Heading("Образец внешнего вида");
         var sample = new System.Windows.Controls.ListBox { Height = 100, Margin = new(0, 0, 0, 8) };
-        sample.Items.Add("▸ Демонстрационная группа"); sample.Items.Add("Тестовая база · 8.3"); sample.Items.Add("Другая тестовая база · 8.4"); sample.SelectedIndex = 1; form.Element(sample);
+        sample.Name = "ThemePreviewList"; sample.Items.Add("▸ Группа баз"); sample.Items.Add("Учебная база · 8.3"); sample.Items.Add("Другая учебная база · 8.4"); sample.SelectedIndex = 1; form.Element(sample);
+        var states = new WrapPanel { Margin = new Thickness(0, 0, 0, 5) };
+        var normal = new Button { Name = "ThemePreviewNormal", Content = "Обычная", ToolTip = "Наведите указатель, нажмите или выберите клавишей Tab" };
+        var hover = new Button { Name = "ThemePreviewHover", Content = "Наведение", ToolTip = "Образец цвета наведения" };
+        hover.SetResourceReference(Control.BackgroundProperty, "ThemeHover"); hover.SetResourceReference(Control.BorderBrushProperty, "ThemeAccent");
+        var selected = new Button { Name = "ThemePreviewSelected", Content = "Выделение", ToolTip = "Образец выделения" };
+        selected.SetResourceReference(Control.BackgroundProperty, "ThemeSelection"); selected.SetResourceReference(Control.ForegroundProperty, "ThemeSelectionText");
+        var disabled = new Button { Name = "ThemePreviewDisabled", Content = "Недоступна", IsEnabled = false, ToolTip = "Действие отключено" };
+        foreach (var button in new[] { normal, hover, selected, disabled }) states.Children.Add(button);
+        form.Element(states);
+        var sampleStatus = new TextBlock { Name = "ThemePreviewStatus", Text = "Кнопки выше показывают разные состояния. Их нажатие изменяет только этот образец.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) };
+        sampleStatus.SetResourceReference(TextBlock.ForegroundProperty, "ThemeMuted"); form.Element(sampleStatus);
+        foreach (var button in new[] { normal, hover, selected }) button.Click += (_, _) => sampleStatus.Text = "Нажата кнопка «" + button.Content + "».";
         form.Section("Пять избранных");
         form.Note("Эти темы появятся в сервисном меню «Темы». Пустое место можно оставить знаком «—».");
         for (int i = 0; i < 5; i++) favorites.Add(form.Choice("favorite" + i, "Стиль " + (i + 1), preview.FavoriteThemes.ElementAtOrDefault(i) ?? "—", ThemeService.All(preview).Select(t => t.Name).Prepend("—")));

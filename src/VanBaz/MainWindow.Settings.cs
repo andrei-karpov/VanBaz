@@ -13,9 +13,12 @@ public partial class MainWindow
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Opening += (_, _) => PopulateTrayMenu(menu);
         tray.ContextMenuStrip = menu; tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray); RefreshTrayMenu();
+        tray.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) Dispatcher.Invoke(ShowTrayPanel); };
+        tray.BalloonTipClosed += (_, _) => { if (!inTray && IsVisible && tray != null) tray.Visible = false; };
         StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) lastWindowState = WindowState; if (WindowState == WindowState.Minimized && catalog.Settings.MinimizeToTray) HideToTray(); };
         Closing += (_, e) =>
         {
+            if (Application.Current is App { IsFatalShutdown: true }) return;
             if (locked) { e.Cancel = true; return; }
             if (operations.Count > 0) { e.Cancel = true; MessageBox.Show("Дождитесь завершения операции с базой. Окно можно свернуть."); return; }
             if (!exitRequested && !isolatedSession && catalog.Settings.CloseToTray) { e.Cancel = true; HideToTray(); return; }
@@ -28,7 +31,7 @@ public partial class MainWindow
             }
             catch (Exception ex) { e.Cancel = true; exitRequested = false; Error("Не удалось сохранить каталог", ex, applicationActions: false); }
         };
-        Closed += (_, _) => { CancelTrayAnimation(); DisposeDisplayTracking(); tray?.Dispose(); tray = null; };
+        Closed += (_, _) => { trayPanel?.Close(); CancelTrayAnimation(); DisposeDisplayTracking(); tray?.Dispose(); tray = null; };
     }
     private string ListEntryColor(BaseEntry entry, bool favorite, bool missing)
     {
@@ -95,7 +98,11 @@ public partial class MainWindow
         form.Choice("doubleclick", "Двойной щелчок новых баз", p.DefaultDoubleClickAction, new[] { "Предприятие", "Предприятие с аутентификацией", "Предприятие с параметрами", "Конфигуратор", "Свойства" });
         form.Check("doubleall", "Применить выбранное действие ко всем существующим базам", false);
         form.Check("snapshot", "Автоматический снимок каталога при запуске", p.AutoSnapshot);
+        form.Text("snapshotdays", "Интервал снимков, дней", p.AutoSnapshotDays.ToString()); form.WatchCheck("snapshot", () => form.SetEnabled("snapshotdays", form.Flag("snapshot")));
+        form.Check("repeatlaunch", "Отслеживать повторный запуск базы", p.MonitorRepeatedLaunch); form.Check("launchballoon", "Всплывающее сообщение после запуска", p.ShowLaunchBalloon);
+        form.Note("Повторный запуск проверяет процессы, ранее запущенные из ВанБаз: база, режим, PID и время создания процесса. Чужие процессы не определяются по похожему заголовку.");
         form.Section("Параметры запуска");
+        form.Choice("connectionmode", "Способ подключения", p.ConnectionMode, LaunchBehavior.ConnectionModes); form.Note("Запуск по /IBName требует единственного совпадающего имени в штатном списке. При дополнительных параметрах соединения используйте Авто или /IBConnectionString.");
         form.ActionButton("Примеры параметров 1С…", () => CreateParameterExamples().CreateDialog(form).ShowDialog());
         form.Note("Примеры можно вставить в дополнительные параметры базы или профиля запуска. Изменение примера не меняет параметры уже настроенных баз.");
         form.ActionButton("Внешние команды…", () => CreateExternalCommandsDialog(form).ShowDialog());
@@ -103,6 +110,7 @@ public partial class MainWindow
         form.ActionButton("Каталоги установленных платформ и браузер…", () => SettingsAction(form, PlatformRoots_Click));
         form.Check("namefolder", "Именовать новую базу по каталогу", p.NewBaseNameFromFolder); form.Check("namedate", "Добавлять дату к имени новой базы", p.NewBaseNameWithDate);
         form.Text("version", "Версия новых баз", p.DefaultVersion); form.BrowseText("folder", "Каталог новых баз", p.DefaultFolder, true);
+        form.Text("templateroots", "Каталоги шаблонов CF", string.Join(Environment.NewLine, p.TemplateRoots), true); form.Note("Дополнительные каталоги шаблонов, по одному в строке. Стандартный каталог tmplts текущего пользователя читается автоматически.");
         form.Section("Источники списков");
         form.ActionButton("Штатные источники 1С и личные настройки…", () => SettingsAction(form, OfficialLists_Click));
         form.Note("Штатные источники обнаруживаются автоматически; окно показывает их состояние. Дополнительные списки сохраняются отдельно своей кнопкой «Сохранить».");
@@ -130,6 +138,13 @@ public partial class MainWindow
         form.ActionButton("Отключить автозапуск ВанБаз", () => { if (isolatedSession) throw new InvalidOperationException("Внешние действия отключены в проверочном сеансе."); DesktopIntegration.Autorun(false, store.Folder); form.SetError("Автозапуск отключён."); });
         form.ActionButton("Добавить команды ВанБаз для .1CD", () => { if (isolatedSession) throw new InvalidOperationException("Внешние действия отключены в проверочном сеансе."); DesktopIntegration.Explorer(true, store.Folder); form.SetError("Добавлены регистрация, Предприятие и Конфигуратор."); });
         form.ActionButton("Убрать команды ВанБаз из Проводника", () => { if (isolatedSession) throw new InvalidOperationException("Внешние действия отключены в проверочном сеансе."); DesktopIntegration.Explorer(false, store.Folder); form.SetError("Команда Проводника удалена."); });
+        form.Section("Стили");
+        form.Note("Стили меняют палитру ВанБаз. Выбор, предпросмотр и отмена доступны в отдельном окне.");
+        form.ActionButton("Выбрать стиль…", () => ShowThemes(form));
+        form.Section("Обновление ВанБаз");
+        form.Note("Проверка и загрузка обновления выполняются в отдельном окне. Установка требует отдельного подтверждения и перезапуска.");
+        form.ActionButton("Проверить обновления ВанБаз…", () => { var window = CreateOnlineUpdateWindow(); window.Owner = form; window.ShowDialog(); });
+        form.ActionButton("Сохранённые версии и восстановление…", () => { var window = CreateVersionHistoryWindow(); window.Owner = form; window.ShowDialog(); });
         form.Validate = () =>
         {
             if (!double.TryParse(form.Value("size"), out var font) || !double.IsFinite(font) || font < 8 || font > 28 || !double.TryParse(form.Value("height"), out var height) || !double.IsFinite(height) || height < 18 || height > 56) return form.SetError("Шрифт: 8–28 пт. Высота строки: 18–56.");
@@ -137,6 +152,8 @@ public partial class MainWindow
             catch { return form.SetError("Цвет: #RRGGBB, например #8A0D06."); }
             if (form.Value("proxymode") == "Указать прокси" && (!Uri.TryCreate(form.Value("proxy"), UriKind.Absolute, out var proxy) || proxy.Scheme is not ("http" or "https") || proxy.UserInfo.Length > 0)) return form.SetError("Нужен HTTP(S)-адрес прокси без пароля.");
             string requestedVersion = form.Value("version").TrimEnd('*', '.');
+            if (!int.TryParse(form.Value("snapshotdays"), out int snapshotDays) || snapshotDays is < 1 or > 3650) return form.SetError("Интервал снимков: от1до3650дней.");
+            foreach (string folder in form.Value("templateroots").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) if (!System.IO.Path.IsPathFullyQualified(folder)) return form.SetError("Для шаблонов укажите полные пути каталогов.");
             if (requestedVersion != "7.7" && !System.Text.RegularExpressions.Regex.IsMatch(requestedVersion, @"^8\.\d+(?:\.\d+){0,2}$")) return form.SetError("Укажите версию новых баз: например 8.3 или 8.3.27.1719.");
             if (!form.Flag("legacy77") && form.Value("version").TrimEnd('*', '.') == "7.7") return form.SetError("Для версии новых баз 7.7 включите её поддержку в разделе «Окно и запуск» или выберите версию 8.x.");
             if (form.Flag("hotkeys"))
@@ -170,6 +187,7 @@ public partial class MainWindow
             p.ProxyMode = form.Value("proxymode"); p.ProxyUser = form.Value("proxyuser"); p.ProxySecret = form.Secret("proxypass", p.ProxySecret);
             p.ProxyUrl = form.Value("proxy"); p.ProxyWindowsCredentials = form.Flag("proxywin");
             p.AutoSnapshot = form.Flag("snapshot");
+            p.AutoSnapshotDays = int.Parse(form.Value("snapshotdays")); p.MonitorRepeatedLaunch = form.Flag("repeatlaunch"); p.ShowLaunchBalloon = form.Flag("launchballoon"); p.ConnectionMode = form.Value("connectionmode"); p.TemplateRoots = form.Value("templateroots").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             p.HotkeysEnabled = form.Flag("hotkeys"); p.ShowHotkey = form.Value("showkey"); p.TrayHotkey = form.Value("traykey"); p.ScreenshotHotkey = form.Value("screenkey"); p.ScreenshotFolder = form.Value("screens");
             foreach (string version in new[] { "8.1", "8.2", "8.3", "8.4", "8.5" }) p.PlatformColors[version] = form.Value("color" + version);
         });
@@ -182,7 +200,10 @@ public partial class MainWindow
             ("Версии платформы и каталоги", "Каталоги и платформа", "Информационные базы"),
             ("Общие списки", "Источники списков", "Информационные базы"),
             ("Параметры запуска", "Параметры запуска", null),
+            ("Настройки платформы", "Каталоги и платформа", "Параметры запуска"),
             ("Оформление", "Цвета списка", null),
+            ("Стили", "Стили", "Оформление"),
+            ("Обновление", "Обновление ВанБаз", null),
             ("Сервис", "Горячие клавиши", null),
             ("Интеграция Windows", "Интеграция Windows", "Сервис"),
             ("PROXY", "Интернет", null));

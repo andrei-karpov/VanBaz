@@ -32,7 +32,7 @@ public partial class MainWindow
         if (ShowPortableUpdate()) return;
         var f = new FormDialog("Обновить ВанБаз", 780, 470) { Owner = this }; f.Section("Пакет приложения");
         f.BrowseText("package", "Пакет ZIP", "", false, "Пакет ВанБаз|*.zip");
-        f.Note("Пакет создаётся скриптом package.ps1 из сборки ВанБаз. Проверяются состав, версия и SHA-256 файлов. Контрольные суммы проверяют целостность, но не автора: используйте только свою сборку или доверенный источник.");
+        f.Note("Подходит компактный ZIP из Releases или пакет package.ps1. Проверяются состав и версия сборки; при наличии манифеста — SHA-256. Для компактного ZIP контрольные суммы сохраняются после чтения. Используйте доверенный источник: эти проверки не удостоверяют автора.");
         f.Note("После подтверждения ВанБаз закроется, заменит четыре файла программы и откроется снова. Каталог данных сохраняется; прежние файлы программы остаются для отката. Проверка HTTPS-канала доступна в меню «Обновления ВанБаз».");
         f.SetAcceptText("Проверить пакет"); f.Validate = () => File.Exists(f.Value("package")) || f.SetError("Выберите ZIP-пакет.");
         if (f.ShowDialog() != true || isolatedSession) return;
@@ -43,7 +43,7 @@ public partial class MainWindow
             var update = await System.Threading.Tasks.Task.Run(() => AppUpdateService.Prepare(packagePath, Path.Combine(store.Folder, "Updates")));
             if (MessageBox.Show("Установить ВанБаз " + update.Version + "?\nПрограмма будет перезапущена.\nПроверенный пакет: " + update.Folder, "Обновление ВанБаз", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
             store.Save(catalog); store.Snapshot();
-            await AppUpdateService.StartInstaller(update, store.Folder);
+            await AppUpdateService.StartInstaller(update, store.Folder, InterfaceMode, modeLocked);
             operations.Remove("@app-update");
             exitRequested = true; Close();
         }

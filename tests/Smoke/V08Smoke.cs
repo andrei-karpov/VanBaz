@@ -26,7 +26,8 @@ internal static class V08Smoke
         bool collision = false; try { LegacyIndexService.Restore(entry, quarantine, () => false); } catch (IOException) { collision = true; }
         File.Delete(Path.Combine(root, "table.cdx")); LegacyIndexService.Restore(entry, quarantine, () => false);
         string profile = Path.Combine(scratch, "profile"); Directory.CreateDirectory(Path.Combine(profile, "AppData"));
-        check(activeRejected && moved && collision && File.ReadAllText(Path.Combine(root, "table.cdx")) == "index" && File.ReadAllText(Path.Combine(root, "table.dbf")) == "synthetic data" && File.ReadAllText(Path.Combine(root, "1Cv7.MD")) == "synthetic metadata" && CacheService.ProfileRoots(profile).Length == 4 && LegacyIndexService.Archives(entry).Count == 0, "7.7 CDX quarantine/restoration preserves database files, refuses clients and new indexes; profile roots stay within chosen AppData");
+        var profileRoots = CacheService.ProfileRoots(profile);
+        check(activeRejected && moved && collision && File.ReadAllText(Path.Combine(root, "table.cdx")) == "index" && File.ReadAllText(Path.Combine(root, "table.dbf")) == "synthetic data" && File.ReadAllText(Path.Combine(root, "1Cv7.MD")) == "synthetic metadata" && profileRoots.Length == 6 && profileRoots.Count(p => Path.GetFileName(p) == "1cv81") == 2 && profileRoots.All(p => p.StartsWith(Path.Combine(profile, "AppData") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) && LegacyIndexService.Archives(entry).Count == 0, "7.7 CDX quarantine/restoration preserves database files, refuses clients and new indexes; Local/Roaming roots include1cv81 within chosen AppData");
 
         string app = Environment.GetEnvironmentVariable("VANBAZ_APP_FOLDER") ?? throw new Exception("Set VANBAZ_APP_FOLDER");
         var manifest = new AppPackage { Version = System.Reflection.AssemblyName.GetAssemblyName(Path.Combine(app, "VanBaz.dll")).Version!.ToString(3) };

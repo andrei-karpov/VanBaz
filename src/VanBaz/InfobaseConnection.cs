@@ -56,7 +56,7 @@ public static class InfobaseConnection
         else if (b.Kind == "Web") parts["ws"] = b.Location;
         else if (b.Kind == "Server")
         {
-            int slash = b.Location.IndexOfAny(new[] { '/', '\\' });
+            int slash = b.Location.LastIndexOfAny(new[] { '/', '\\' });
             if (slash <= 0 || slash == b.Location.Length - 1) throw new InvalidDataException("Укажите сервер и имя базы через разделитель /.");
             parts["Srvr"] = b.Location[..slash]; parts["Ref"] = b.Location[(slash + 1)..];
         }

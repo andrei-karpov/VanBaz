@@ -44,6 +44,7 @@ public class BaseEditor : FormDialog
         Choice("configsource", "Источник релизов", this.configurations.FirstOrDefault(c => c.Id == entry.ConfigurationId) is { } selected ? Label(selected) : "", new[] { "" }.Concat(this.configurations.Select(Label)));
         Text("updateurl", "Свой UpdInfo.txt", entry.UpdateInfoUrl);
         Choice("group", "Группа", entry.Group, groups, true);
+        ActionButton("Выбрать группу…", () => { var picker = new GroupSelectionWindow(groups, Value("group")) { Owner = this }; if (picker.ShowDialog() == true) { var group = (System.Windows.Controls.ComboBox)Field("group"); group.Text = picker.SelectedGroup; } });
         Check("favorite", "В избранном", entry.Favorite);
         Heading("Используемая платформа");
         Choice("version", "Версия платформы", entry.Version, new[] { "8.3", "8.4", "8.5", "8.2", "8.1", "7.7" }.Concat(platforms.Select(p => p.Version)).Where(v => enableLegacy77 || v != "7.7").Distinct(), true);
@@ -58,16 +59,27 @@ public class BaseEditor : FormDialog
         Section("2. Подключение");
         Choice("kind", "Тип базы", entry.Kind switch { "Server" => "На сервере 1С", "Web" => "Веб-публикация", _ => "В каталоге" }, new[] { "В каталоге", "На сервере 1С", "Веб-публикация" });
         BrowseText("location", "Каталог базы", entry.Kind == "File" ? entry.Location : "", true);
-        var serverParts = entry.Location.Replace('\\', '/').Split('/', 2);
+        string normalizedServer = entry.Location.Replace('\\', '/'); int serverDivider = normalizedServer.LastIndexOf('/'); var serverParts = serverDivider < 0 ? new[] { normalizedServer } : new[] { normalizedServer[..serverDivider], normalizedServer[(serverDivider + 1)..] };
         Text("server", "Кластер серверов", entry.Kind == "Server" ? serverParts[0] : "");
         Text("reference", "Имя базы на сервере", entry.Kind == "Server" && serverParts.Length == 2 ? serverParts[1] : "");
+        Check("checkagent", "Перед запуском проверять версию агента сервера", entry.CheckServerAgent);
         Text("url", "Адрес публикации", entry.Kind == "Web" ? entry.Location : "");
+        var web = entry.WebOptions ?? new();
+        Choice("webspeed", "Скорость соединения", web.Speed, new[] { "По умолчанию", "Выбирать при запуске", "Обычная", "Низкая" });
+        Choice("webauth", "Вход на веб-сервер", web.Authentication, new[] { "По умолчанию", "Windows", "Запрашивать" });
+        Text("webuser", "Пользователь HTTP", web.User);
+        Choice("webproxy", "Прокси тонкого клиента", web.Proxy, new[] { "По умолчанию", "Без прокси", "Указать" });
+        Text("webproxyserver", "Сервер прокси", web.ProxyServer); Text("webproxyport", "Порт прокси", web.ProxyPort.ToString()); Text("webproxyuser", "Пользователь прокси", web.ProxyUser);
         void ConnectionState()
         {
             SetVisible("location", Value("kind") == "В каталоге");
             SetVisible("server", Value("kind") == "На сервере 1С"); SetVisible("reference", Value("kind") == "На сервере 1С");
+            SetVisible("checkagent", Value("kind") == "На сервере 1С");
             SetVisible("url", Value("kind") == "Веб-публикация");
+            foreach (string field in new[] { "webspeed", "webauth", "webuser", "webproxy", "webproxyserver", "webproxyport", "webproxyuser" }) SetVisible(field, Value("kind") == "Веб-публикация");
+            foreach (string field in new[] { "webproxyserver", "webproxyport", "webproxyuser" }) SetEnabled(field, Value("webproxy") == "Указать");
         }
+        ((System.Windows.Controls.ComboBox)Field("webproxy")).SelectionChanged += (_, _) => ConnectionState();
         ((System.Windows.Controls.ComboBox)Field("kind")).SelectionChanged += (_, _) => ConnectionState(); ConnectionState();
         Section("3. Аутентификация");
         Choice("wa", "Вход Windows", entry.WindowsAuthentication, new[] { "Авто", "Да", "Нет" });
@@ -102,7 +114,14 @@ public class BaseEditor : FormDialog
         foreach (string name in new[] { "entlogin", "cfglogin", "repositoryuse" })
         { var check = (System.Windows.Controls.CheckBox)Field(name); check.Checked += (_, _) => AuthenticationState(); check.Unchecked += (_, _) => AuthenticationState(); }
         AuthenticationState();
-        void MetadataAvailability() => detect.IsEnabled = metadataReader != null && Value("kind") != "Веб-публикация" && Value("version") != "7.7";
+        void MetadataAvailability()
+        {
+            bool legacy = Value("version") == "7.7";
+            detect.IsEnabled = metadataReader != null && Value("kind") != "Веб-публикация" && !legacy; detect.Visibility = legacy ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+            foreach (string field in new[] { "configversion", "configname", "configsource", "updateurl", "client", "arch", "epf", "wa", "repositoryuse", "repository", "repouser", "repopass" }) SetVisible(field, !legacy);
+            SetSectionVisible("5. Блокировка", !legacy); SetEnabled("kind", !legacy);
+        }
+        Loaded += (_, _) => MetadataAvailability();
         ((System.Windows.Controls.ComboBox)Field("kind")).SelectionChanged += (_, _) => MetadataAvailability();
         Field("version").AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new System.Windows.Controls.TextChangedEventHandler((_, _) => MetadataAvailability()));
         ((System.Windows.Controls.ComboBox)Field("version")).SelectionChanged += (_, _) => Dispatcher.BeginInvoke(new Action(MetadataAvailability));
@@ -153,6 +172,8 @@ public class BaseEditor : FormDialog
         Result.ConfigurationId = configurations.FirstOrDefault(c => c.Name + " [" + c.Id + "]" == Value("configsource"))?.Id ?? "";
         Result.Favorite = Flag("favorite"); Result.Client = Value("client"); Result.Architecture = Value("arch"); Result.ExtraArguments = Value("args"); Result.ExternalProcessor = Value("epf");
         Result.WindowsAuthentication = Value("wa"); Result.EnterpriseLogin = Flag("entlogin"); Result.DesignerLogin = Flag("cfglogin");
+        if (kind == "Web" && Value("webproxy") == "Указать" && (Value("webproxyserver").Length == 0 || !int.TryParse(Value("webproxyport"), out int proxyPort) || proxyPort is < 1 or > 65535)) return SetError("Укажите сервер прокси и порт от 1 до 65535.");
+        Result.WebOptions = new() { Speed = Value("webspeed"), Authentication = Value("webauth"), User = Value("webuser"), Proxy = Value("webproxy"), ProxyServer = Value("webproxyserver"), ProxyPort = int.TryParse(Value("webproxyport"), out int port) ? port : 8080, ProxyUser = Value("webproxyuser") };
         Result.UserName = Value("entuser"); Result.DesignerUser = Value("cfguser");
         Result.EnterpriseSecret = Secret("entpass", Result.EnterpriseSecret); Result.DesignerSecret = Secret("cfgpass", Result.DesignerSecret);
         if (PasswordChanged("entpass")) Result.EnterprisePasswordMissing = false;
@@ -160,6 +181,6 @@ public class BaseEditor : FormDialog
         Result.UseRepository = Flag("repositoryuse"); Result.Repository = Value("repository"); Result.RepositoryUser = Value("repouser"); Result.RepositorySecret = Secret("repopass", Result.RepositorySecret);
         if (PasswordChanged("repopass")) Result.RepositoryPasswordMissing = false;
         Result.DoubleClickAction = Value("doubleclick");
-        Result.RunAsAdmin = Flag("admin"); Result.DisallowDelete = Flag("nodelete"); return true;
+        Result.RunAsAdmin = Flag("admin"); Result.CheckServerAgent = Flag("checkagent"); Result.DisallowDelete = Flag("nodelete"); return true;
     }
 }

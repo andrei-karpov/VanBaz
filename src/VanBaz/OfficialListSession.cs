@@ -151,6 +151,13 @@ public sealed class OfficialListSession
     }
 
     public bool Contains(string id) => effective.ContainsKey(id);
+    public void ValidateLaunchName(BaseEntry entry)
+    {
+        var matches = effective.Values.Where(r => r.Name.Equals(entry.Name, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (matches.Length != 1 || !matches[0].Id.Equals(entry.Id, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Имя отсутствует или неоднозначно в штатном списке 1С. Для этой базы выберите другой способ запуска.");
+        var endpoint = InfobaseConnection.Endpoint(InfobaseConnection.Parse(matches[0].Fields.GetValueOrDefault("Connect", "")));
+        if (endpoint.Kind != entry.Kind || !endpoint.Location.Equals(entry.Location, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Подключение базы в штатном списке изменилось. Обновите список перед запуском по имени.");
+    }
     public bool IsCommon(string id) => common.ContainsKey(id);
     public static bool HasOfficialChanges(Catalog before, Catalog after)
     {
