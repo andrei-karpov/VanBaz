@@ -199,19 +199,18 @@ public class FormDialog : Window
     public TextBox ColorField(string key, string label, string value)
     {
         var box = Text(key, label, value);
-        var button = new Button { Width = 34, MinHeight = 24, Margin = new(4, 0, 0, 0), Padding = new(4), ToolTip = "Выбрать цвет: " + label };
+        var button = new Button { Width = 116, MinHeight = 26, Margin = new(4, 0, 0, 0), Padding = new(5, 2, 5, 2), ToolTip = "Открыть диалог выбора цвета: " + label };
         System.Windows.Automation.AutomationProperties.SetName(button, "Выбрать цвет: " + label);
-        var swatch = new Border { BorderBrush = Brushes.Gray, BorderThickness = new(1), Height = 14, Width = 22 }; button.Content = swatch;
+        var swatch = new Border { BorderBrush = Brushes.Gray, BorderThickness = new(1), Height = 16, Width = 20, Margin = new(0, 0, 7, 0) };
+        var content = new StackPanel { Orientation = Orientation.Horizontal }; content.Children.Add(swatch); content.Children.Add(new TextBlock { Text = "Выбрать…", VerticalAlignment = VerticalAlignment.Center }); button.Content = content;
         void Preview() { try { swatch.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(box.Text)); } catch { swatch.Background = Brushes.Transparent; } }
         box.TextChanged += (_, _) => Preview(); Preview();
         button.Click += (_, _) =>
         {
-            using var picker = new System.Windows.Forms.ColorDialog { FullOpen = true };
-            try { var color = (Color)ColorConverter.ConvertFromString(box.Text); picker.Color = System.Drawing.Color.FromArgb(color.R, color.G, color.B); } catch { }
-            if (picker.ShowDialog(new ColorOwner(new System.Windows.Interop.WindowInteropHelper(this).Handle)) == System.Windows.Forms.DialogResult.OK)
-                box.Text = $"#{picker.Color.R:X2}{picker.Color.G:X2}{picker.Color.B:X2}";
+            var picker = new ColorPickerDialog(box.Text, label) { Owner = this };
+            if (picker.ShowDialog() == true) box.Text = picker.SelectedColorText;
         };
-        var row = (Grid)box.Parent; row.ColumnDefinitions.Add(new() { Width = new GridLength(38) }); Grid.SetColumn(button, 2); row.Children.Add(button); return box;
+        var row = (Grid)box.Parent; row.ColumnDefinitions.Add(new() { Width = new GridLength(120) }); Grid.SetColumn(button, 2); row.Children.Add(button); return box;
     }
     public void ColorToggle(string enabledKey, string colorKey, string label, bool enabled, string color)
     {
@@ -220,7 +219,6 @@ public class FormDialog : Window
         var toggle = new CheckBox { Content = label, IsChecked = enabled, Margin = new(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center };
         fields[enabledKey] = toggle; row.Children.Insert(0, toggle);
     }
-    private sealed record ColorOwner(IntPtr Handle) : System.Windows.Forms.IWin32Window;
     public void Element(UIElement element) => current.Children.Add(element);
     public void ActionButton(string title, Action action)
     {

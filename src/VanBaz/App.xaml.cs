@@ -8,6 +8,9 @@ namespace VanBaz;
 
 public partial class App : Application
 {
+    private readonly bool isolatedStartup;
+    public App() { }
+    internal App(bool isolatedStartup) => this.isolatedStartup = isolatedStartup;
     internal System.Diagnostics.ProcessStartInfo? RestartStartInfo { get; set; }
     internal bool IsFatalShutdown { get; private set; }
     private bool presentingFatalError;
@@ -19,6 +22,7 @@ public partial class App : Application
     private InstanceBridge? bridge;
     protected override void OnStartup(StartupEventArgs e)
     {
+        if (isolatedStartup) { base.OnStartup(e); return; }
         DispatcherUnhandledException += (_, args) =>
         {
             args.Handled = true;

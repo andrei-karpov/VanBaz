@@ -49,7 +49,17 @@ public partial class MainWindow
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         if (!AllowTools()) return;
-        CreateSettingsDialog().ShowDialog();
+        try { CreateSettingsDialog().ShowDialog(); }
+        catch (Exception ex)
+        {
+            try
+            {
+                string logs = System.IO.Path.Combine(store.Folder, "Logs"); System.IO.Directory.CreateDirectory(logs);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(logs, DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + "-settings-error.txt"), ex.ToString());
+            }
+            catch { /* A log failure must not hide the original error. */ }
+            Error("Не удалось открыть настройки", ex, applicationActions: false);
+        }
     }
     private FormDialog CreateSettingsDialog()
     {
