@@ -18,7 +18,7 @@ internal static class ButtonAudit
     {
         foreach (var item in LogicalTreeHelper.GetChildren(root)) if (item is DependencyObject child) { if (child is T typed) yield return typed; foreach (var nested in Children<T>(child)) yield return nested; }
     }
-    private static void Click(ButtonBase button) => button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+    private static void Click(ButtonBase button) => typeof(ButtonBase).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(button, null);
     private static void Require(bool value, string detail) { if (!value) throw new Exception(detail); }
     private static void Render(Window window, string path)
     {
@@ -50,6 +50,7 @@ internal static class ButtonAudit
             var main = new MainWindow(store, catalog, true);
             app.MainWindow = main;
             var results = new List<object>(); var errors = new List<Exception>(); string current = "startup";
+            var lifecycleWindows = new HashSet<Window>(); var lifecycle = new List<object>();
             void Record(string id, string status, string detail) { results.Add(new { id, status, detail }); Console.WriteLine(status + " " + id + ": " + detail); }
             void Scenario(string id, Action action)
             {
@@ -58,6 +59,21 @@ internal static class ButtonAudit
                 catch (Exception ex) { errors.Add(ex); Record(id, "FAIL", ex.ToString()); }
             }
             app.DispatcherUnhandledException += (_, e) => { errors.Add(e.Exception); Record(current, "FAIL", e.Exception.ToString()); e.Handled = true; foreach (var w in app.Windows.Cast<Window>().Where(w => w != main).ToArray()) w.Close(); };
+            void ObserveLifecycle(Window window)
+            {
+                if (!lifecycleWindows.Add(window)) return;
+                void Deactivate(string phase)
+                {
+                    try
+                    {
+                        typeof(Window).GetMethod("OnDeactivated", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, new object[] { EventArgs.Empty });
+                        lifecycle.Add(new { window = window.Title, type = window.GetType().Name, phase, status = "PASS" });
+                    }
+                    catch (Exception ex) { errors.Add(ex); Record("WindowLifecycle/" + window.Title + "/" + phase, "FAIL", ex.ToString()); }
+                }
+                window.Closing += (_, _) => Deactivate("Closing → Deactivated");
+                window.Closed += (_, _) => Deactivate("Closed → Deactivated");
+            }
             void Dialog(Action open, Action<Window>? inspect = null)
             {
                 bool opened = false;
@@ -69,9 +85,17 @@ internal static class ButtonAudit
                     if (window == null) window = app.Windows.Cast<Window>().LastOrDefault(w => !existing.Contains(w) && w.IsVisible);
                     if (window == null) return;
                     timer.Stop(); opened = true;
+                    ObserveLifecycle(window);
                     try { inspect?.Invoke(window); }
                     catch (Exception ex) { errors.Add(ex); Record(current, "FAIL", ex.ToString()); }
-                    finally { window.Close(); }
+                    finally
+                    {
+                        if (window.IsVisible)
+                        {
+                            var cancel = Children<Button>(window).FirstOrDefault(b => b.IsCancel && b.IsEnabled && b.IsVisible);
+                            if (cancel != null) Click(cancel); else window.Close();
+                        }
+                    }
                 };
                 timer.Start(); try { open(); } finally { timer.Stop(); }
                 Require(opened, "Expected a visible modal window");
@@ -79,6 +103,7 @@ internal static class ButtonAudit
             try
             {
                 main.Show();
+                ObserveLifecycle(main);
                 Call(main, "SelectBaseInList", "fixture");
                 Scenario("SettingsButton/modal/navigation", () => Dialog(() => Click((Button)main.FindName("SettingsButton")), w =>
                 {
@@ -135,6 +160,7 @@ internal static class ButtonAudit
                         if (active?.Title == "Системное меню ВанБаз")
                         {
                             opened++;
+                            ObserveLifecycle(active);
                             active.Closing += (_, _) =>
                             {
                                 // Closing an active popup can deliver Deactivated before it becomes invisible.
@@ -144,7 +170,7 @@ internal static class ButtonAudit
                             };
                             Click(Children<Button>(active).Single(b => b.ToolTip?.ToString() == "Настройки"));
                         }
-                        else if (active is FormDialog && active.Title == "Настройки ВанБаз") { opened++; timer.Stop(); active.Close(); }
+                        else if (active is FormDialog && active.Title == "Настройки ВанБаз") { opened++; timer.Stop(); ObserveLifecycle(active); active.Close(); }
                     };
                     timer.Start(); try { Click((Button)main.FindName("SystemMenuButton")); } finally { timer.Stop(); }
                     Require(opened == 2, "System menu must route to visible settings");
@@ -164,6 +190,7 @@ internal static class ButtonAudit
                 Scenario("TrayPanel/reentrant-close", () =>
                 {
                     var panel = (Window)Call(main, "CreateTrayPanel", new Action<string, bool>((_, _) => { }))!;
+                    ObserveLifecycle(panel);
                     Exception? closeFailure = null;
                     panel.Closing += (_, _) =>
                     {
@@ -214,6 +241,7 @@ internal static class ButtonAudit
                 });
                 Scenario("Exit-button", () => { var exit = Children<Button>(main).Single(b => b.ToolTip?.ToString() == "Завершить ВанБаз"); Click(exit); Require(!main.IsVisible, "Exit button did not close the main window"); });
                 Require(app.Windows.OfType<MainWindow>().Count() == 0, "Isolated audit must leave no additional main window");
+                File.WriteAllText(Path.Combine(folder, "lifecycle.json"), JsonSerializer.Serialize(lifecycle, new JsonSerializerOptions { WriteIndented = true }));
                 File.WriteAllText(Path.Combine(folder, "results.json"), JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
                 if (errors.Count > 0) throw new AggregateException(errors);
             }
