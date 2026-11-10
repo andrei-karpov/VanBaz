@@ -9,12 +9,11 @@ public partial class MainWindow
     private bool exitRequested;
     private void InitializeTray()
     {
-        tray = new System.Windows.Forms.NotifyIcon { Text = "ВанБаз", Icon = AppBrand.TrayIcon, Visible = false };
+        tray = new System.Windows.Forms.NotifyIcon { Text = "ВанБаз", Icon = AppBrand.TrayIcon, Visible = true };
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Opening += (_, _) => PopulateTrayMenu(menu);
         tray.ContextMenuStrip = menu; tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray); RefreshTrayMenu();
         tray.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) Dispatcher.Invoke(ShowFromTray); };
-        tray.BalloonTipClosed += (_, _) => { if (!inTray && IsVisible && tray != null) tray.Visible = false; };
         StateChanged += (_, _) => { if (WindowState != WindowState.Minimized) lastWindowState = WindowState; if (WindowState == WindowState.Minimized && catalog.Settings.MinimizeToTray) HideToTray(); };
         Closing += (_, e) =>
         {

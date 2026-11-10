@@ -32,6 +32,6 @@ public partial class MainWindow
             PlaceNormalWindow(trayDisplays != null && trayDisplays.SequenceEqual(DisplayAreas()) ? trayBounds : null); WindowState = trayWindowState; inTray = false;
         }
         else if (WindowState == WindowState.Minimized) WindowState = lastWindowState;
-        Show(); Activate(); if (tray != null) tray.Visible = false;
+        Show(); Activate();
     }
 }

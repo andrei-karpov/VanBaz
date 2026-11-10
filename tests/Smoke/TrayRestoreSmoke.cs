@@ -32,7 +32,8 @@ internal static class TrayRestoreSmoke
                 var tray = (Forms.NotifyIcon)Field(main, "tray")!;
                 void Require(bool value, string message) { if (!value) throw new Exception(message); Console.WriteLine("PASS " + message); }
                 void LeftClick() => Call(tray, "OnMouseClick", new Forms.MouseEventArgs(Forms.MouseButtons.Left, 1, 0, 0, 0));
-                void Visible(WindowState state, string message) => Require(main.IsVisible && main.WindowState == state && main.Opacity == 1 && !tray.Visible && Field(main, "trayPanel") == null, message);
+                void Visible(WindowState state, string message) => Require(main.IsVisible && main.WindowState == state && main.Opacity == 1 && tray.Visible && Field(main, "trayPanel") == null, message);
+                Require(tray.Visible, "tray icon visible while main window is open at startup");
                 var bounds = Call(main, "CurrentPixelBounds");
                 for (int i = 0; i < 3; i++)
                 {
@@ -54,6 +55,11 @@ internal static class TrayRestoreSmoke
                 Require(panel?.IsVisible == true && !main.IsVisible, "favorites panel remains accessible from context menu");
                 menu.Items.OfType<Forms.ToolStripMenuItem>().Single(x => x.Text == "Открыть ВанБаз").PerformClick(); Pump();
                 Visible(WindowState.Maximized, "context-menu Open restores window and closes favorites panel");
+                Call(tray, "OnBalloonTipClosed");
+                Require(tray.Visible && main.IsVisible, "closing a launch notification retains the tray icon");
+                bool disposed = false; tray.Disposed += (_, _) => disposed = true;
+                main.Close(); Pump();
+                Require(disposed && Field(main, "tray") == null, "exiting disposes the notification icon");
                 Console.WriteLine("PASS tray regression: real WPF window + NotifyIcon event handlers; synthetic catalog; no native mouse input or real 1C launch.");
             }
             catch (Exception ex) { failure = ex; }
