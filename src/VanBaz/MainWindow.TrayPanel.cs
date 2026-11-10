@@ -37,8 +37,10 @@ public partial class MainWindow
         void Start(bool design) { if (!Enabled("idle") || design && !CanEdit || list.SelectedItem is not BaseEntry entry || entry.Id.Length == 0 || design && entry.Kind == "Web") return; window.Close(); launch(entry.Id, design); }
         menu.Opened += (_, _) => { enterprise.IsEnabled = Enabled("idle") && list.SelectedItem is BaseEntry { Id.Length: > 0 }; designer.IsEnabled = enterprise.IsEnabled && CanEdit && list.SelectedItem is BaseEntry { Kind: not "Web" }; };
         enterprise.Click += (_, _) => Start(false); designer.Click += (_, _) => Start(true);
-        window.Deactivated += (_, _) => { if (!menu.IsOpen) window.Close(); };
-        menu.Closed += (_, _) => { if (!window.IsActive && window.IsVisible) window.Close(); };
+        bool closing = false;
+        window.Closing += (_, _) => closing = true;
+        window.Deactivated += (_, _) => { if (!closing && window.IsVisible && !menu.IsOpen) window.Close(); };
+        menu.Closed += (_, _) => { if (!closing && !window.IsActive && window.IsVisible) window.Close(); };
         list.PreviewMouseRightButtonDown += (_, e) => { if (ItemsControl.ContainerFromElement(list, e.OriginalSource as DependencyObject) is ListBoxItem item) item.IsSelected = true; };
         list.MouseDoubleClick += (_, e) => { if (DialogBehavior.OnItem(e.OriginalSource)) Start(false); };
         list.PreviewKeyDown += (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; Start(Keyboard.Modifiers == ModifierKeys.Control); } };

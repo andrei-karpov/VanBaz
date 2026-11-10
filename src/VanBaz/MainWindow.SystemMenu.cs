@@ -50,7 +50,9 @@ public partial class MainWindow
         foreach (var item in new[] { ("links", "Перейти"), ("help", "Справка"), ("about", "О программе"), ("close", "Закрыть") })
         { string action = item.Item1; var button = new Button { Content = item.Item2 }; button.Click += (_, _) => Select(action); footer.Children.Add(button); }
         window.KeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; window.Close(); } };
-        window.Deactivated += (_, _) => { if (window.IsVisible) window.Close(); };
+        bool closing = false;
+        window.Closing += (_, _) => closing = true;
+        window.Deactivated += (_, _) => { if (!closing && window.IsVisible) window.Close(); };
         window.Loaded += (_, _) =>
         {
             var handle = new WindowInteropHelper(window).Handle; var anchor = SystemMenuButton.PointToScreen(new Point(SystemMenuButton.ActualWidth, SystemMenuButton.ActualHeight));

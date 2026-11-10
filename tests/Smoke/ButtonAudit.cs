@@ -128,15 +128,27 @@ internal static class ButtonAudit
                 Scenario("ServiceMenu/settings", () => Dialog(() => Children<MenuItem>(main).Single(m => m.Header?.ToString() == "Настройки…").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent))));
                 Scenario("SystemMenu/settings-routing", () =>
                 {
-                    int opened = 0; var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+                    int opened = 0; Exception? closeFailure = null; var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
                     timer.Tick += (_, _) =>
                     {
                         var active = app.Windows.Cast<Window>().LastOrDefault(w => w != main && w.IsVisible);
-                        if (active?.Title == "Системное меню ВанБаз") { opened++; Click(Children<Button>(active).Single(b => b.ToolTip?.ToString() == "Настройки")); }
+                        if (active?.Title == "Системное меню ВанБаз")
+                        {
+                            opened++;
+                            active.Closing += (_, _) =>
+                            {
+                                // Closing an active popup can deliver Deactivated before it becomes invisible.
+                                // Replay that event order deterministically; the previous timer-only click missed it.
+                                try { typeof(Window).GetMethod("OnDeactivated", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(active, new object[] { EventArgs.Empty }); }
+                                catch (Exception ex) { closeFailure = ex; }
+                            };
+                            Click(Children<Button>(active).Single(b => b.ToolTip?.ToString() == "Настройки"));
+                        }
                         else if (active is FormDialog && active.Title == "Настройки ВанБаз") { opened++; timer.Stop(); active.Close(); }
                     };
                     timer.Start(); try { Click((Button)main.FindName("SystemMenuButton")); } finally { timer.Stop(); }
                     Require(opened == 2, "System menu must route to visible settings");
+                    Require(closeFailure == null, "Closing → Deactivated must not call Close a second time: " + closeFailure);
                 });
                 Scenario("Settings/error-boundary", () =>
                 {
@@ -148,6 +160,17 @@ internal static class ButtonAudit
                         Require(main.IsVisible && Directory.GetFiles(Path.Combine(store.Folder, "Logs"), "*-settings-error.txt").Length > 0, "Settings failure must retain main window and diagnostics");
                     }
                     finally { catalog.Settings.ProxyUrl = proxy; catalog.Settings.ProxyMode = mode; }
+                });
+                Scenario("TrayPanel/reentrant-close", () =>
+                {
+                    var panel = (Window)Call(main, "CreateTrayPanel", new Action<string, bool>((_, _) => { }))!;
+                    Exception? closeFailure = null;
+                    panel.Closing += (_, _) =>
+                    {
+                        try { typeof(Window).GetMethod("OnDeactivated", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(panel, new object[] { EventArgs.Empty }); }
+                        catch (Exception ex) { closeFailure = ex; }
+                    };
+                    panel.Show(); panel.Close(); Require(closeFailure == null, "Tray panel repeated Close during Closing: " + closeFailure);
                 });
                 foreach (var handler in new[] { "Themes_Click", "ActionsMenu_Click", "ReleasesMenu_Click", "SnapshotsMenu_Click", "CopyMenu_Click", "AddMenu_Click", "StarterMenu_Click", "ColumnsMenu_Click", "LegacyMenu_Click" })
                     Scenario(handler, () => { var sender = (Button)main.FindName("SettingsButton"); Call(main, handler, sender, new RoutedEventArgs()); sender.ContextMenu?.SetCurrentValue(ContextMenu.IsOpenProperty, false); });
